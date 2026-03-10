@@ -110,37 +110,56 @@ def _parse_arp_output(output: str) -> list[NetworkDevice]:
             line,
         )
         if arp_match:
-            ip = arp_match.group(1)
-            mac_raw = arp_match.group(2)
-            arp_type = arp_match.group(3).lower()
-
-            # Skip broadcast and multicast addresses
-            if mac_raw.lower() in ("ff-ff-ff-ff-ff-ff", "ff:ff:ff:ff:ff:ff"):
-                continue
-
-            try:
-                mac = normalize_mac(mac_raw)
-            except ValueError:
-                continue
-
-            # Skip multicast MACs (first byte odd)
-            first_byte = int(mac[:2], 16)
-            if first_byte & 0x01:
-                continue
-
-            if mac in seen_macs:
-                continue
-            seen_macs.add(mac)
-
-            device = NetworkDevice(
-                ip_address=ip,
-                mac_address=mac,
-                interface=current_interface,
-                arp_type=arp_type,
-            )
-            devices.append(device)
+            device = _parse_arp_entry(arp_match, current_interface, seen_macs)
+            if device:
+                devices.append(device)
 
     return devices
+
+
+def _parse_arp_entry(
+    match: re.Match[str],
+    interface: str,
+    seen_macs: set[str],
+) -> NetworkDevice | None:
+    """Parse a single ARP table entry.
+
+    Args:
+        match: Regex match with groups (ip, mac, type).
+        interface: Current network interface.
+        seen_macs: Set of already-seen MACs for dedup.
+
+    Returns:
+        NetworkDevice if valid, None otherwise.
+    """
+    ip = match.group(1)
+    mac_raw = match.group(2)
+    arp_type = match.group(3).lower()
+
+    # Skip broadcast addresses
+    if mac_raw.lower() in ("ff-ff-ff-ff-ff-ff", "ff:ff:ff:ff:ff:ff"):
+        return None
+
+    try:
+        mac = normalize_mac(mac_raw)
+    except ValueError:
+        return None
+
+    # Skip multicast MACs (first byte odd)
+    first_byte = int(mac[:2], 16)
+    if first_byte & 0x01:
+        return None
+
+    if mac in seen_macs:
+        return None
+    seen_macs.add(mac)
+
+    return NetworkDevice(
+        ip_address=ip,
+        mac_address=mac,
+        interface=interface,
+        arp_type=arp_type,
+    )
 
 
 def _resolve_hostname(ip_address: str) -> str | None:
@@ -158,7 +177,7 @@ def _resolve_hostname(ip_address: str) -> str | None:
         hostname, _, _ = socket.gethostbyaddr(ip_address)
         if hostname and hostname != ip_address:
             return hostname
-    except (socket.herror, socket.gaierror, OSError):
+    except (socket.herror, OSError):
         pass
 
     return None

@@ -27,6 +27,10 @@ def _init_mac_lookup() -> None:
         logger.exception("Failed to initialize MAC vendor lookup.")
 
 
+# Vendor name constants to avoid string duplication
+_VENDOR_ATHEROS_QUALCOMM = "Atheros/Qualcomm"
+_VENDOR_RASPBERRY_PI = "Raspberry Pi Foundation"
+
 # Common OUI prefixes as fallback when the full database is unavailable.
 # Format: first 3 bytes (uppercase, colon-separated) -> vendor name
 _BUILTIN_OUI: dict[str, str] = {
@@ -416,20 +420,20 @@ _BUILTIN_OUI: dict[str, str] = {
     "00:24:D7": "Intel",
     "00:27:10": "Intel",
     # Qualcomm / Atheros (like the AR9271)
-    "00:03:7F": "Atheros/Qualcomm",
-    "00:0B:6B": "Atheros/Qualcomm",
-    "00:0E:6D": "Atheros/Qualcomm",
-    "00:13:74": "Atheros/Qualcomm",
-    "00:15:AF": "Atheros/Qualcomm",
-    "00:1C:EF": "Atheros/Qualcomm",
-    "00:24:C3": "Atheros/Qualcomm",
-    "00:26:CB": "Atheros/Qualcomm",
-    "04:F0:21": "Atheros/Qualcomm",
-    "1C:4B:D6": "Atheros/Qualcomm",
-    "24:DE:C6": "Atheros/Qualcomm",
-    "40:A5:EF": "Atheros/Qualcomm",
-    "50:46:5D": "Atheros/Qualcomm",
-    "58:98:35": "Atheros/Qualcomm",
+    "00:03:7F": _VENDOR_ATHEROS_QUALCOMM,
+    "00:0B:6B": _VENDOR_ATHEROS_QUALCOMM,
+    "00:0E:6D": _VENDOR_ATHEROS_QUALCOMM,
+    "00:13:74": _VENDOR_ATHEROS_QUALCOMM,
+    "00:15:AF": _VENDOR_ATHEROS_QUALCOMM,
+    "00:1C:EF": _VENDOR_ATHEROS_QUALCOMM,
+    "00:24:C3": _VENDOR_ATHEROS_QUALCOMM,
+    "00:26:CB": _VENDOR_ATHEROS_QUALCOMM,
+    "04:F0:21": _VENDOR_ATHEROS_QUALCOMM,
+    "1C:4B:D6": _VENDOR_ATHEROS_QUALCOMM,
+    "24:DE:C6": _VENDOR_ATHEROS_QUALCOMM,
+    "40:A5:EF": _VENDOR_ATHEROS_QUALCOMM,
+    "50:46:5D": _VENDOR_ATHEROS_QUALCOMM,
+    "58:98:35": _VENDOR_ATHEROS_QUALCOMM,
     # TP-Link
     "00:1D:0F": "TP-Link",
     "14:CC:20": "TP-Link",
@@ -550,9 +554,9 @@ _BUILTIN_OUI: dict[str, str] = {
     "C8:3F:26": "Microsoft",
     "DC:B4:C4": "Microsoft",
     # Raspberry Pi
-    "B8:27:EB": "Raspberry Pi Foundation",
-    "DC:A6:32": "Raspberry Pi Foundation",
-    "E4:5F:01": "Raspberry Pi Foundation",
+    "B8:27:EB": _VENDOR_RASPBERRY_PI,
+    "DC:A6:32": _VENDOR_RASPBERRY_PI,
+    "E4:5F:01": _VENDOR_RASPBERRY_PI,
     # Amazon
     "00:FC:8B": "Amazon",
     "0C:47:C9": "Amazon",

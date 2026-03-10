@@ -164,45 +164,56 @@ def _parse_bt_output(output: str) -> list[BluetoothDevice]:
     seen_macs: set[str] = set()
 
     for item in data:
-        if not isinstance(item, dict):
-            continue
-
-        mac = item.get("MAC", "")
-        name = item.get("Name", "")
-        status = item.get("Status", "")
-
-        # Skip entries without a MAC or name
-        if not mac and not name:
-            continue
-
-        # Skip the Bluetooth adapter itself (often named "Intel Wireless Bluetooth" or similar)
-        if _is_bluetooth_adapter(name):
-            logger.debug("Skipping Bluetooth adapter: %s", name)
-            continue
-
-        # Normalize MAC if available
-        if mac:
-            try:
-                mac = normalize_mac(mac)
-            except ValueError:
-                logger.debug("Skipping device with invalid MAC: %s", mac)
-                continue
-
-            if mac in seen_macs:
-                continue
-            seen_macs.add(mac)
-
-        device = BluetoothDevice(
-            mac_address=mac,
-            device_name=name or None,
-            is_connected=(status == "OK"),
-            is_paired=True,  # PnP devices are typically paired
-            device_class=item.get("Class"),
-        )
-        devices.append(device)
+        device = _parse_bt_device(item, seen_macs)
+        if device:
+            devices.append(device)
 
     logger.info("Bluetooth scan complete: found %d devices.", len(devices))
     return devices
+
+
+def _parse_bt_device(item: object, seen_macs: set[str]) -> BluetoothDevice | None:
+    """Parse a single Bluetooth device entry from JSON.
+
+    Args:
+        item: Dictionary with device properties.
+        seen_macs: Set of already-seen MAC addresses for dedup.
+
+    Returns:
+        BluetoothDevice if valid, None otherwise.
+    """
+    if not isinstance(item, dict):
+        return None
+
+    mac = item.get("MAC", "")
+    name = item.get("Name", "")
+    status = item.get("Status", "")
+
+    if not mac and not name:
+        return None
+
+    if _is_bluetooth_adapter(name):
+        logger.debug("Skipping Bluetooth adapter: %s", name)
+        return None
+
+    if mac:
+        try:
+            mac = normalize_mac(mac)
+        except ValueError:
+            logger.debug("Skipping device with invalid MAC: %s", mac)
+            return None
+
+        if mac in seen_macs:
+            return None
+        seen_macs.add(mac)
+
+    return BluetoothDevice(
+        mac_address=mac,
+        device_name=name or None,
+        is_connected=(status == "OK"),
+        is_paired=True,
+        device_class=item.get("Class"),
+    )
 
 
 def _is_bluetooth_adapter(name: str) -> bool:

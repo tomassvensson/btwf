@@ -235,14 +235,14 @@ class _ServiceCollector:
     def __init__(self) -> None:
         self.found: list[tuple[str, str]] = []
 
-    def add_service(self, zc: object, type_: str, name: str) -> None:  # noqa: ARG002
+    def add_service(self, zc: object, type_: str, name: str) -> None:  # noqa: ARG002  # NOSONAR python:S1172 - required by ServiceListener interface
         """Handle a newly discovered service."""
         self.found.append((type_, name))
 
-    def remove_service(self, zc: object, type_: str, name: str) -> None:  # noqa: ARG002
+    def remove_service(self, zc: object, type_: str, name: str) -> None:  # noqa: ARG002  # NOSONAR python:S1172 - required by ServiceListener interface
         """Handle a removed service (ignored)."""
 
-    def update_service(self, zc: object, type_: str, name: str) -> None:  # noqa: ARG002
+    def update_service(self, zc: object, type_: str, name: str) -> None:  # noqa: ARG002  # NOSONAR python:S1172 - required by ServiceListener interface
         """Handle a service update (treated as add)."""
         self.found.append((type_, name))
 
