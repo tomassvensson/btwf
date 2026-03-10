@@ -4,3 +4,4 @@ pytest-timeout>=2.3
 ruff>=0.4
 mypy>=1.10
 types-tabulate>=0.10
+types-pyyaml>=6.0

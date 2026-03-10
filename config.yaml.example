@@ -1,0 +1,66 @@
+# BtWiFi Configuration
+# Copy this to config.yaml and customize as needed.
+
+scan:
+  # Run continuously in a loop
+  continuous: false
+  # Seconds between scan cycles (when continuous=true)
+  interval_seconds: 60
+  # Seconds of absence before starting a new visibility window
+  gap_seconds: 300
+  # Enable/disable individual scan types
+  wifi_enabled: true
+  bluetooth_enabled: true
+  ble_enabled: true
+  arp_enabled: true
+  mdns_enabled: true
+  ssdp_enabled: true
+  netbios_enabled: true
+  snmp_enabled: false
+  monitor_mode_enabled: false
+
+arp:
+  resolve_hostnames: true
+  max_concurrent: 10
+  timeout_seconds: 2.0
+  min_delay_seconds: 0.05
+  max_delay_seconds: 0.2
+  jitter: true
+
+snmp:
+  community: "public"
+  version: 2
+  port: 161
+  timeout_seconds: 2.0
+  target_hosts: []
+  # target_hosts:
+  #   - "192.168.50.1"
+
+database:
+  url: "sqlite:///btwifi.db"
+
+alert:
+  enabled: true
+  log_new_devices: true
+  log_file: null
+  sound_enabled: false
+
+# Add known/trusted devices here
+whitelist: []
+  # - mac_address: "AA:BB:CC:DD:EE:FF"
+  #   name: "My Phone"
+  #   category: "mobile"
+  #   trusted: true
+
+oui:
+  auto_update: true
+  update_interval_hours: 168  # 1 week
+  cache_file: "src/data/oui_cache.txt"
+
+monitor_mode:
+  interface: "wlan0mon"
+  use_docker: true
+  docker_image: "btwifi-monitor:latest"
+  channel_hop: true
+  hop_interval_seconds: 0.5
+  capture_duration_seconds: 30
