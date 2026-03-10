@@ -1,0 +1,59 @@
+[project]
+name = "btwifi"
+version = "0.1.0"
+description = "Track WiFi and Bluetooth device visibility over time"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "Private"}
+
+dependencies = [
+    "sqlalchemy>=2.0",
+    "mac-vendor-lookup>=0.1.12",
+    "zeroconf>=0.131.0",
+    "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-timeout>=2.3",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+monitor = [
+    "scapy>=2.5",
+]
+
+[project.scripts]
+btwifi = "src.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -q --timeout=30"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 81
+show_missing = true

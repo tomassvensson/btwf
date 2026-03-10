@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.iml
+.metadata/
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Environment variables
+.env
+
+# Test / Coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Database
+*.db
+*.sqlite3
+
+# SonarQube
+.scannerwork/
+.sonar/
+
+# Distribution
+*.tar.gz
+*.whl
+
+# Logs
+*.log
+
+# Private docs (prompts, requirements tracking)
+.github/docs2/
+.github/copilot-instructions.md
+
+# Trivy
+.trivy-cache/
+
+# mypy
+.mypy_cache/
+
+# OUI database cache
+src/data/*.txt
+!src/data/.gitkeep
