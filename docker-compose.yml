@@ -1,0 +1,21 @@
+services:
+  btwifi:
+    build: .
+    container_name: btwifi-scanner
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - BTWIFI_CONTINUOUS=true
+      - BTWIFI_SCAN_INTERVAL=60
+      - DATABASE_URL=sqlite:///data/btwifi.db
+    # Required for Bluetooth and network scanning
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    # Give access to Bluetooth device
+    devices:
+      - /dev/bluetooth:/dev/bluetooth
+    privileged: false
