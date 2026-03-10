@@ -5,7 +5,7 @@ import os
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Column, Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.models import Base
@@ -54,6 +54,34 @@ def init_database(database_url: str | None = None) -> Engine:
     return engine
 
 
+def _build_default_clause(column: Column, col_type: str) -> str:  # type: ignore[type-arg]
+    """Build the DEFAULT clause for a column being added via ALTER TABLE.
+
+    Args:
+        column: SQLAlchemy Column object.
+        col_type: Compiled column type string.
+
+    Returns:
+        SQL DEFAULT clause string (e.g. " DEFAULT 0") or empty string.
+    """
+    # Explicit model-level default
+    if column.default is not None and hasattr(column.default, "arg"):
+        return f" DEFAULT {column.default.arg!r}"
+
+    if column.nullable:
+        return " DEFAULT NULL"
+
+    # server_default is handled by the DB engine; nothing extra needed here
+    if column.server_default is not None:
+        return ""
+
+    # SQLite requires a default for NOT NULL columns added via ALTER TABLE
+    upper_type = col_type.upper()
+    if "INT" in upper_type or "BOOL" in upper_type:
+        return " DEFAULT 0"
+    return " DEFAULT ''"
+
+
 def _migrate_missing_columns(engine: Engine) -> None:
     """Add any columns defined in models but missing from the database.
 
@@ -68,28 +96,12 @@ def _migrate_missing_columns(engine: Engine) -> None:
             continue  # table doesn't exist yet; create_all will handle it
 
         existing_columns = {col["name"] for col in insp.get_columns(table_name)}
+        missing = [c for c in table.columns if c.name not in existing_columns]
 
-        for column in table.columns:
-            if column.name in existing_columns:
-                continue
-
+        for column in missing:
             col_type = column.type.compile(engine.dialect)
-            default_clause = ""
-            if column.default is not None and hasattr(column.default, "arg"):
-                default_clause = f" DEFAULT {column.default.arg!r}"
-            elif column.nullable:
-                default_clause = " DEFAULT NULL"
-            elif not column.nullable and column.server_default is not None:
-                # server_default handled by DB; just mark NOT NULL
-                pass
-
             nullable = "" if column.nullable else " NOT NULL"
-            # SQLite requires a default for NOT NULL columns added via ALTER TABLE
-            if not column.nullable and not default_clause:
-                if "INT" in col_type.upper() or "BOOL" in col_type.upper():
-                    default_clause = " DEFAULT 0"
-                else:
-                    default_clause = " DEFAULT ''"
+            default_clause = _build_default_clause(column, col_type)
 
             ddl = f"ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}{nullable}{default_clause}"
             logger.info("Migrating schema: %s", ddl)
