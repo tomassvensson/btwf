@@ -201,5 +201,5 @@ class TestGetAllDevicesWithLatestWindow:
 
             results = get_all_devices_with_latest_window(session)
             assert len(results) == 1
-            d, w = results[0]
+            _, w = results[0]
             assert w is None

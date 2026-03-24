@@ -1,5 +1,7 @@
 """Tests for device fingerprinting."""
 
+import pytest
+
 from src.fingerprint import (
     DeviceFingerprint,
     _parse_os_string,
@@ -20,7 +22,7 @@ class TestDeviceFingerprint:
         assert fp.device_model == ""
         assert fp.manufacturer == ""
         assert fp.services == []
-        assert fp.confidence == 0.0
+        assert fp.confidence == pytest.approx(0.0)
 
     def test_merge_fills_empty_fields(self) -> None:
         fp1 = DeviceFingerprint(mac_address="AA:BB:CC:DD:EE:FF", os_family="macOS")
@@ -38,7 +40,7 @@ class TestDeviceFingerprint:
         assert fp1.manufacturer == "Apple"
         assert fp1.device_model == "MacBook Pro"
         assert "http" in fp1.services
-        assert fp1.confidence == 0.8
+        assert fp1.confidence == pytest.approx(0.8)
 
     def test_merge_does_not_overwrite(self) -> None:
         fp1 = DeviceFingerprint(
@@ -92,7 +94,7 @@ class TestFingerprintFromMdnsTxt:
     def test_empty_records(self) -> None:
         fp = fingerprint_from_mdns_txt("AA:BB:CC:DD:EE:FF", {})
         assert fp.device_model == ""
-        assert fp.confidence == 0.0
+        assert fp.confidence == pytest.approx(0.0)
 
 
 class TestFingerprintFromSsdpServer:
@@ -112,7 +114,7 @@ class TestFingerprintFromSsdpServer:
     def test_empty_server_string(self) -> None:
         fp = fingerprint_from_ssdp_server("AA:BB:CC:DD:EE:FF", "")
         assert fp.os_family == ""
-        assert fp.confidence == 0.0
+        assert fp.confidence == pytest.approx(0.0)
 
     def test_product_only(self) -> None:
         fp = fingerprint_from_ssdp_server("AA:BB:CC:DD:EE:FF", "SomeProduct/2.0")
@@ -163,11 +165,11 @@ class TestFingerprintFromHostname:
     def test_empty_hostname(self) -> None:
         fp = fingerprint_from_hostname("AA:BB:CC:DD:EE:FF", "")
         assert fp.os_family == ""
-        assert fp.confidence == 0.0
+        assert fp.confidence == pytest.approx(0.0)
 
     def test_generic_hostname(self) -> None:
         fp = fingerprint_from_hostname("AA:BB:CC:DD:EE:FF", "just-a-hostname")
-        assert fp.confidence == 0.0
+        assert fp.confidence == pytest.approx(0.0)
 
 
 class TestParseOsString:
