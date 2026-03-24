@@ -30,6 +30,7 @@ class ScanConfig:
     netbios_enabled: bool = True
     snmp_enabled: bool = False
     monitor_mode_enabled: bool = False
+    ipv6_enabled: bool = True
 
 
 @dataclass
@@ -104,6 +105,35 @@ class MonitorModeConfig:
 
 
 @dataclass
+class ApiConfig:
+    """Web API and dashboard settings."""
+
+    enabled: bool = True
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
+@dataclass
+class MqttConfig:
+    """MQTT publishing settings."""
+
+    enabled: bool = False
+    broker_host: str = "localhost"
+    broker_port: int = 1883
+    topic_prefix: str = "btwifi"
+    username: str | None = None
+    password: str | None = None
+    client_id: str = "btwifi-scanner"
+
+
+@dataclass
+class MetricsConfig:
+    """Prometheus metrics settings."""
+
+    enabled: bool = True
+
+
+@dataclass
 class AppConfig:
     """Root application configuration."""
 
@@ -115,6 +145,9 @@ class AppConfig:
     whitelist: list[WhitelistEntry] = field(default_factory=list)
     oui: OuiConfig = field(default_factory=OuiConfig)
     monitor_mode: MonitorModeConfig = field(default_factory=MonitorModeConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
+    mqtt: MqttConfig = field(default_factory=MqttConfig)
+    metrics: MetricsConfig = field(default_factory=MetricsConfig)
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -175,6 +208,7 @@ def _parse_raw_config(raw: dict) -> AppConfig:
             netbios_enabled=s.get("netbios_enabled", config.scan.netbios_enabled),
             snmp_enabled=s.get("snmp_enabled", config.scan.snmp_enabled),
             monitor_mode_enabled=s.get("monitor_mode_enabled", config.scan.monitor_mode_enabled),
+            ipv6_enabled=s.get("ipv6_enabled", config.scan.ipv6_enabled),
         )
 
     if "arp" in raw:
@@ -241,6 +275,32 @@ def _parse_raw_config(raw: dict) -> AppConfig:
             channel_hop=mm.get("channel_hop", config.monitor_mode.channel_hop),
             hop_interval_seconds=mm.get("hop_interval_seconds", config.monitor_mode.hop_interval_seconds),
             capture_duration_seconds=mm.get("capture_duration_seconds", config.monitor_mode.capture_duration_seconds),
+        )
+
+    if "api" in raw:
+        ap = raw["api"]
+        config.api = ApiConfig(
+            enabled=ap.get("enabled", config.api.enabled),
+            host=ap.get("host", config.api.host),
+            port=ap.get("port", config.api.port),
+        )
+
+    if "mqtt" in raw:
+        mq = raw["mqtt"]
+        config.mqtt = MqttConfig(
+            enabled=mq.get("enabled", config.mqtt.enabled),
+            broker_host=mq.get("broker_host", config.mqtt.broker_host),
+            broker_port=mq.get("broker_port", config.mqtt.broker_port),
+            topic_prefix=mq.get("topic_prefix", config.mqtt.topic_prefix),
+            username=mq.get("username", config.mqtt.username),
+            password=mq.get("password", config.mqtt.password),
+            client_id=mq.get("client_id", config.mqtt.client_id),
+        )
+
+    if "metrics" in raw:
+        me = raw["metrics"]
+        config.metrics = MetricsConfig(
+            enabled=me.get("enabled", config.metrics.enabled),
         )
 
     return config

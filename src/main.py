@@ -28,6 +28,7 @@ from src.device_tracker import (
     track_wifi_scan,
     update_visibility,
 )
+from src.ipv6_scanner import Ipv6Neighbor, scan_ipv6_neighbors
 from src.mdns_scanner import MdnsDevice
 from src.models import Device, VisibilityWindow
 from src.network_discovery import NetworkDevice, scan_arp_table
@@ -212,6 +213,21 @@ def run_scan(config: AppConfig | None = None) -> None:
     whitelist = WhitelistManager(config)
     alert_mgr = AlertManager(config.alert)
 
+    # Initialize MQTT if enabled
+    mqtt_pub = None
+    if config.mqtt.enabled:
+        from src.mqtt_publisher import MqttPublisher
+
+        mqtt_pub = MqttPublisher(
+            broker_host=config.mqtt.broker_host,
+            broker_port=config.mqtt.broker_port,
+            topic_prefix=config.mqtt.topic_prefix,
+            username=config.mqtt.username,
+            password=config.mqtt.password,
+            client_id=config.mqtt.client_id,
+        )
+        mqtt_pub.connect()
+
     if config.scan.continuous:
         logger.info(
             "Continuous mode enabled. Scan interval: %ds. Press Ctrl+C to stop.",
@@ -224,7 +240,7 @@ def run_scan(config: AppConfig | None = None) -> None:
         while not _shutdown_requested:
             scan_number += 1
             logger.info("--- Scan cycle #%d ---", scan_number)
-            _run_single_scan(engine, config, whitelist, alert_mgr)
+            _run_single_scan(engine, config, whitelist, alert_mgr, mqtt_pub)
 
             if _shutdown_requested:
                 break
@@ -241,7 +257,11 @@ def run_scan(config: AppConfig | None = None) -> None:
 
         logger.info("Continuous scanning stopped after %d cycles.", scan_number)
     else:
-        _run_single_scan(engine, config, whitelist, alert_mgr)
+        _run_single_scan(engine, config, whitelist, alert_mgr, mqtt_pub)
+
+    # Cleanup MQTT
+    if mqtt_pub is not None:
+        mqtt_pub.disconnect()
 
 
 def _run_single_scan(
@@ -249,6 +269,7 @@ def _run_single_scan(
     config: AppConfig,
     whitelist: WhitelistManager,
     alert_mgr: AlertManager,
+    mqtt_publisher: object | None = None,
 ) -> None:
     """Execute one scan cycle across all enabled scanners.
 
@@ -257,7 +278,9 @@ def _run_single_scan(
         config: Application configuration.
         whitelist: Whitelist manager.
         alert_mgr: Alert manager.
+        mqtt_publisher: Optional MQTT publisher.
     """
+    scan_start = time.time()
     scan_data = _execute_all_scanners(config)
     gap = config.scan.gap_seconds
 
@@ -267,6 +290,31 @@ def _run_single_scan(
         _alert_new_tracked_devices(wifi_results + bt_results, whitelist, alert_mgr)
         session.flush()
         _display_results(session, whitelist)
+
+    scan_duration = time.time() - scan_start
+
+    # Record metrics
+    if config.metrics.enabled:
+        from src.metrics import SCAN_DURATION, SCAN_TOTAL, record_scan_results
+
+        SCAN_TOTAL.inc()
+        SCAN_DURATION.observe(scan_duration)
+        record_scan_results(
+            wifi_count=len(scan_data.wifi_networks),
+            bluetooth_count=len(scan_data.bt_devices),
+            arp_count=len(scan_data.arp_devices),
+        )
+
+    # Publish to MQTT
+    if mqtt_publisher is not None:
+        from src.mqtt_publisher import MqttPublisher
+
+        if isinstance(mqtt_publisher, MqttPublisher) and mqtt_publisher.is_connected:
+            mqtt_publisher.publish_scan_summary(
+                wifi_count=len(scan_data.wifi_networks),
+                bluetooth_count=len(scan_data.bt_devices),
+                arp_count=len(scan_data.arp_devices),
+            )
 
 
 class _ScanData:
@@ -279,6 +327,8 @@ class _ScanData:
         "mdns_devices",
         "ssdp_devices",
         "netbios_names",
+        "ipv6_neighbors",
+        "monitor_devices",
     )
 
     def __init__(self) -> None:
@@ -288,6 +338,8 @@ class _ScanData:
         self.mdns_devices: list[MdnsDevice] = []
         self.ssdp_devices: list[SsdpDevice] = []
         self.netbios_names: dict[str, str] = {}
+        self.ipv6_neighbors: list[Ipv6Neighbor] = []
+        self.monitor_devices: list[object] = []  # MonitorModeDevice when scapy available
 
 
 def _execute_all_scanners(config: AppConfig) -> _ScanData:
@@ -318,6 +370,12 @@ def _execute_all_scanners(config: AppConfig) -> _ScanData:
 
     if config.scan.netbios_enabled and data.arp_devices:
         data.netbios_names = _resolve_netbios(data.arp_devices)
+
+    if config.scan.ipv6_enabled:
+        data.ipv6_neighbors = _run_scanner("IPv6", scan_ipv6_neighbors)
+
+    if config.scan.monitor_mode_enabled:
+        data.monitor_devices = _run_scanner("Monitor", _import_and_scan_monitor)
 
     return data
 
@@ -354,6 +412,13 @@ def _import_and_scan_ssdp() -> list[SsdpDevice]:
     from src.ssdp_scanner import scan_ssdp_devices
 
     return scan_ssdp_devices()
+
+
+def _import_and_scan_monitor() -> list[object]:
+    """Import and run the monitor mode scanner."""
+    from src.monitor_scanner import scan_monitor_mode
+
+    return scan_monitor_mode()  # type: ignore[return-value]
 
 
 def _resolve_netbios(arp_devices: list[NetworkDevice]) -> dict[str, str]:
@@ -412,6 +477,9 @@ def _store_scan_results(
 
     for ssdp_dev in data.ssdp_devices:
         _upsert_ssdp_device(session, ssdp_dev, whitelist, alert_mgr, gap)
+
+    for ipv6_dev in data.ipv6_neighbors:
+        _upsert_ipv6_device(session, ipv6_dev, whitelist, alert_mgr, gap)
 
     return wifi_results, bt_results
 
@@ -614,6 +682,58 @@ def _upsert_ssdp_device(
     )
 
 
+def _upsert_ipv6_device(
+    session: DbSession,
+    ipv6_dev: Ipv6Neighbor,
+    whitelist: WhitelistManager,
+    alert_mgr: AlertManager,
+    gap_seconds: int,
+) -> None:
+    """Insert/update a device from IPv6 neighbor discovery.
+
+    Args:
+        session: Database session.
+        ipv6_dev: Ipv6Neighbor from IPv6 scan.
+        whitelist: Whitelist manager.
+        alert_mgr: Alert manager.
+        gap_seconds: Visibility gap threshold.
+    """
+    existing = session.query(Device).filter_by(mac_address=ipv6_dev.mac_address).first()
+
+    if existing is None:
+        device = Device(
+            mac_address=ipv6_dev.mac_address,
+            device_type="network",
+            ip_address=ipv6_dev.ipv6_address,
+            extra_info=f"IPv6: {ipv6_dev.ipv6_address} ({ipv6_dev.state})",
+        )
+        session.add(device)
+
+        alert_mgr.on_new_device(
+            mac_address=ipv6_dev.mac_address,
+            device_type="network",
+            device_name=None,
+            is_whitelisted=whitelist.is_known(ipv6_dev.mac_address),
+        )
+    else:
+        # Enrich with IPv6 info if not already present
+        ipv6_info = f"IPv6: {ipv6_dev.ipv6_address}"
+        if existing.extra_info and ipv6_info not in existing.extra_info:
+            existing.extra_info = f"{existing.extra_info} | {ipv6_info}"
+        elif not existing.extra_info:
+            existing.extra_info = ipv6_info
+        # Update IP if not already set (prefer IPv4)
+        if not existing.ip_address:
+            existing.ip_address = ipv6_dev.ipv6_address
+
+    update_visibility(
+        session,
+        mac_address=ipv6_dev.mac_address,
+        scan_time=ipv6_dev.scan_time,
+        gap_seconds=gap_seconds,
+    )
+
+
 def _categorize_all_devices(session: DbSession, whitelist: WhitelistManager) -> None:
     """Categorize all devices that don't have a category yet.
 
@@ -753,6 +873,30 @@ def main() -> None:
     """Main entry point."""
     try:
         config = load_config()
+
+        # Start API server in background thread if enabled
+        if config.api.enabled:
+            import threading
+
+            from src.api import app, set_engine
+
+            engine = init_database(config.database.url)
+            set_engine(engine)
+
+            def _run_api() -> None:
+                import uvicorn
+
+                uvicorn.run(
+                    app,
+                    host=config.api.host,
+                    port=config.api.port,
+                    log_level="warning",
+                )
+
+            api_thread = threading.Thread(target=_run_api, daemon=True, name="api-server")
+            api_thread.start()
+            logger.info("API server started on http://%s:%d", config.api.host, config.api.port)
+
         run_scan(config)
     except KeyboardInterrupt:
         logger.info("Scan interrupted by user.")
