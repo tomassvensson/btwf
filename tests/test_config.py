@@ -1,6 +1,8 @@
 """Tests for configuration module."""
 
 import os
+
+import pytest
 from unittest.mock import mock_open, patch
 
 from src.config import (
@@ -107,7 +109,7 @@ class TestParseRawConfig:
         raw = {"arp": {"resolve_hostnames": False, "timeout_seconds": 5.0}}
         config = _parse_raw_config(raw)
         assert config.arp.resolve_hostnames is False
-        assert config.arp.timeout_seconds == 5.0
+        assert config.arp.timeout_seconds == pytest.approx(5.0)
 
     def test_snmp_section(self) -> None:
         raw = {"snmp": {"community": "private", "version": 3}}
