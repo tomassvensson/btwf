@@ -31,6 +31,7 @@ BtWiFi uses multiple discovery protocols to scan for nearby wireless and network
 - **Database:** SQLite via SQLAlchemy
 - **WiFi Scanning:** Windows Native WiFi API (`netsh`)
 - **Bluetooth Scanning:** Windows Bluetooth API via PowerShell
+- **ARP Discovery:** `ip neigh` (Linux) / `arp -a` (Windows)
 - **mDNS Discovery:** zeroconf library
 - **OUI Lookup:** IEEE MA-L (OUI) database via mac-vendor-lookup
 - **Configuration:** PyYAML
@@ -44,22 +45,27 @@ BtWiFi uses multiple discovery protocols to scan for nearby wireless and network
 
 ```bash
 # Create virtual environment
-python -m venv .venv
+python3 -m venv .venv
 
-# Activate (Windows)
-.venv\Scripts\Activate.ps1
+# Activate (Linux / WSL / macOS)
+source .venv/bin/activate
+# Activate (Windows PowerShell)
+# .venv\Scripts\Activate.ps1
 
 # Install dependencies
 pip install -e ".[dev]"
 
-# Run the scanner
-python -m src.main
-
-# Run with custom config
+# Create your config
 cp config.yaml.example config.yaml
 # Edit config.yaml to your needs
 python -m src.main
 ```
+
+> **WSL / Linux note:** WiFi and Bluetooth scanners use Windows-only APIs
+> (`netsh`, PowerShell). On Linux or WSL, set `wifi_enabled`, `bluetooth_enabled`,
+> and `ble_enabled` to `false` in `config.yaml`. The ARP, mDNS, SSDP, NetBIOS,
+> and IPv6 scanners work cross-platform. Under WSL2, enable `ping_sweep` with
+> your LAN subnet to discover devices beyond the virtual NAT gateway.
 
 ## Configuration
 

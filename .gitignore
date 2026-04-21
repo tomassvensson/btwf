@@ -90,3 +90,6 @@ scripts/sonar*.sh
 # OUI database cache
 src/data/*.txt
 !src/data/.gitkeep
+
+config.yaml
+

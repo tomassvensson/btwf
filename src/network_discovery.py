@@ -7,10 +7,13 @@ Security: This is purely passive — reads the existing ARP cache and
 performs standard DNS/NetBIOS lookups. No probing or port scanning.
 """
 
+import ipaddress
 import logging
+import platform
 import re
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -48,16 +51,24 @@ def scan_arp_table() -> list[NetworkDevice]:
     """
     logger.info("Reading ARP table for local network devices...")
 
+    system = platform.system().lower()
+    if system == "windows":
+        cmd = ["arp", "-a"]
+        parser = _parse_arp_output
+    else:
+        cmd = ["ip", "neigh", "show"]
+        parser = _parse_ip_neigh_output
+
     try:
         result = subprocess.run(
-            ["arp", "-a"],
+            cmd,
             capture_output=True,
             text=True,
             timeout=15,
             check=False,
         )
     except FileNotFoundError:
-        logger.error("arp command not found.")
+        logger.error("%s command not found.", cmd[0])
         return []
     except subprocess.TimeoutExpired:
         logger.error("ARP table query timed out.")
@@ -67,9 +78,8 @@ def scan_arp_table() -> list[NetworkDevice]:
         logger.warning("ARP command failed (rc=%d)", result.returncode)
         return []
 
-    devices = _parse_arp_output(result.stdout)
+    devices = parser(result.stdout)
 
-    # Resolve hostnames for discovered devices
     for device in devices:
         device.hostname = _resolve_hostname(device.ip_address)
 
@@ -160,6 +170,147 @@ def _parse_arp_entry(
         interface=interface,
         arp_type=arp_type,
     )
+
+
+def _parse_ip_neigh_output(output: str) -> list[NetworkDevice]:
+    """Parse the output of `ip neigh show` on Linux.
+
+    Format: IP dev IFACE lladdr MAC STATE
+
+    Args:
+        output: Raw stdout from ip neigh command.
+
+    Returns:
+        List of NetworkDevice objects.
+    """
+    devices: list[NetworkDevice] = []
+    seen_macs: set[str] = set()
+
+    pattern = re.compile(
+        r"^(\d+\.\d+\.\d+\.\d+)\s+dev\s+(\S+)\s+lladdr\s+"
+        r"([\da-fA-F]{2}(?::[\da-fA-F]{2}){5})\s+(\S+)",
+    )
+
+    for line in output.splitlines():
+        match = pattern.match(line.strip())
+        if not match:
+            continue
+
+        ip = match.group(1)
+        interface = match.group(2)
+        mac_raw = match.group(3)
+        state = match.group(4).lower()
+
+        if state == "failed":
+            continue
+
+        if mac_raw.lower() == "ff:ff:ff:ff:ff:ff":
+            continue
+
+        try:
+            mac = normalize_mac(mac_raw)
+        except ValueError:
+            continue
+
+        first_byte = int(mac[:2], 16)
+        if first_byte & 0x01:
+            continue
+
+        if mac in seen_macs:
+            continue
+        seen_macs.add(mac)
+
+        devices.append(
+            NetworkDevice(
+                ip_address=ip,
+                mac_address=mac,
+                interface=interface,
+                arp_type="dynamic" if state in ("reachable", "stale", "delay", "probe") else state,
+            )
+        )
+
+    return devices
+
+
+def _ip_to_pseudo_mac(ip: str) -> str:
+    """Generate a deterministic locally-administered MAC from an IP address.
+
+    Uses the locally-administered bit (02:xx) so these never collide with
+    real OUI-assigned MACs.
+    """
+    octets = ip.split(".")
+    return f"02:00:{int(octets[0]):02X}:{int(octets[1]):02X}:{int(octets[2]):02X}:{int(octets[3]):02X}"
+
+
+def _ping_host(ip: str, timeout: float = 1.0) -> str | None:
+    """Ping a single host. Returns the IP if it responds, None otherwise."""
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", str(int(timeout)), str(ip)],
+            capture_output=True,
+            timeout=timeout + 2,
+            check=False,
+        )
+        if result.returncode == 0:
+            return ip
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
+def ping_sweep(subnets: list[str], max_workers: int = 40, timeout: float = 1.0) -> list[NetworkDevice]:
+    """Ping-sweep one or more subnets and return responding hosts.
+
+    For hosts discovered through a NAT (where real MACs aren't available),
+    a deterministic locally-administered pseudo-MAC is generated from the IP.
+
+    Args:
+        subnets: List of CIDR subnets to scan (e.g. ["192.168.0.0/24"]).
+        max_workers: Maximum concurrent pings.
+        timeout: Ping timeout per host in seconds.
+
+    Returns:
+        List of NetworkDevice objects for responding hosts.
+    """
+    targets: list[str] = []
+    for cidr in subnets:
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+            targets.extend(str(h) for h in network.hosts())
+        except ValueError:
+            logger.warning("Invalid subnet: %s", cidr)
+
+    if not targets:
+        return []
+
+    logger.info("Ping sweep: %d hosts across %d subnet(s)...", len(targets), len(subnets))
+
+    alive: list[str] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_ping_host, ip, timeout): ip for ip in targets}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                alive.append(result)
+
+    logger.info("Ping sweep complete: %d hosts responded.", len(alive))
+
+    devices: list[NetworkDevice] = []
+    for ip in sorted(alive, key=lambda x: tuple(int(o) for o in x.split("."))):
+        mac = _ip_to_pseudo_mac(ip)
+        hostname = _resolve_hostname(ip)
+        vendor = lookup_vendor(mac)
+        devices.append(
+            NetworkDevice(
+                ip_address=ip,
+                mac_address=mac,
+                hostname=hostname,
+                vendor=vendor,
+                arp_type="ping",
+            )
+        )
+
+    return devices
 
 
 def _resolve_hostname(ip_address: str) -> str | None:

@@ -27,6 +27,14 @@ arp:
   max_delay_seconds: 0.2
   jitter: true
 
+# Ping sweep for discovering hosts on remote subnets (useful in WSL2/NAT)
+ping_sweep:
+  enabled: false
+  subnets: []
+    # - "192.168.0.0/24"
+  max_workers: 40
+  timeout_seconds: 1.0
+
 snmp:
   community: "public"
   version: 2

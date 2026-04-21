@@ -31,7 +31,7 @@ from src.device_tracker import (
 from src.ipv6_scanner import Ipv6Neighbor, scan_ipv6_neighbors
 from src.mdns_scanner import MdnsDevice
 from src.models import Device, VisibilityWindow
-from src.network_discovery import NetworkDevice, scan_arp_table
+from src.network_discovery import NetworkDevice, ping_sweep, scan_arp_table
 from src.oui_lookup import is_randomized_mac
 from src.ssdp_scanner import SsdpDevice
 from src.whitelist import WhitelistManager
@@ -324,6 +324,7 @@ class _ScanData:
         "wifi_networks",
         "bt_devices",
         "arp_devices",
+        "ping_sweep_devices",
         "mdns_devices",
         "ssdp_devices",
         "netbios_names",
@@ -335,6 +336,7 @@ class _ScanData:
         self.wifi_networks: list[WifiNetwork] = []
         self.bt_devices: list[BluetoothDevice] = []
         self.arp_devices: list[NetworkDevice] = []
+        self.ping_sweep_devices: list[NetworkDevice] = []
         self.mdns_devices: list[MdnsDevice] = []
         self.ssdp_devices: list[SsdpDevice] = []
         self.netbios_names: dict[str, str] = {}
@@ -361,6 +363,16 @@ def _execute_all_scanners(config: AppConfig) -> _ScanData:
 
     if config.scan.arp_enabled:
         data.arp_devices = _run_scanner("ARP", scan_arp_table)
+
+    if config.ping_sweep.enabled and config.ping_sweep.subnets:
+        data.ping_sweep_devices = _run_scanner(
+            "Ping Sweep",
+            lambda: ping_sweep(
+                config.ping_sweep.subnets,
+                max_workers=config.ping_sweep.max_workers,
+                timeout=config.ping_sweep.timeout_seconds,
+            ),
+        )
 
     if config.scan.mdns_enabled:
         data.mdns_devices = _run_scanner("mDNS", _import_and_scan_mdns)
@@ -469,7 +481,8 @@ def _store_scan_results(
     bt_results = track_bluetooth_scan(session, data.bt_devices, gap_seconds=gap)
     logger.info("Tracked %d Bluetooth devices.", len(bt_results))
 
-    for arp_dev in data.arp_devices:
+    all_network_devices = data.arp_devices + data.ping_sweep_devices
+    for arp_dev in all_network_devices:
         _upsert_network_device(session, arp_dev, whitelist, alert_mgr, data.netbios_names, gap)
 
     for mdns_dev in data.mdns_devices:
@@ -767,6 +780,39 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
 }
 
 
+_CATEGORY_RELEVANCE: dict[str, int] = {
+    "router": 0,
+    "access_point": 1,
+    "computer": 2,
+    "mobile": 3,
+    "tablet": 4,
+    "nas": 5,
+    "printer": 6,
+    "tv": 7,
+    "speaker": 8,
+    "gaming": 9,
+    "camera": 10,
+    "iot": 11,
+    "wearable": 12,
+    "appliance": 13,
+    "network": 14,
+    "virtual": 15,
+    "unknown": 16,
+}
+
+
+def _device_sort_key(
+    item: tuple[Device, VisibilityWindow | None],
+    whitelist: WhitelistManager | None,
+) -> tuple[int, int, int, str]:
+    """Sort key: whitelisted first, then category relevance, then named, then MAC."""
+    device, _window = item
+    is_wl = 0 if device.is_whitelisted else 1
+    cat_rank = _CATEGORY_RELEVANCE.get(device.category or "unknown", 16)
+    has_name = 0 if (device.device_name or device.hostname) else 1
+    return (is_wl, cat_rank, has_name, device.mac_address)
+
+
 def _display_results(session: DbSession, whitelist: WhitelistManager | None = None) -> None:
     """Display all tracked devices in a human-readable table.
 
@@ -779,6 +825,8 @@ def _display_results(session: DbSession, whitelist: WhitelistManager | None = No
     if not results:
         print("\nNo devices found.")
         return
+
+    results.sort(key=lambda item: _device_sort_key(item, whitelist))
 
     headers = [
         "Type",

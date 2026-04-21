@@ -57,6 +57,16 @@ class SnmpConfig:
 
 
 @dataclass
+class PingSweepConfig:
+    """Ping sweep discovery settings."""
+
+    enabled: bool = False
+    subnets: list[str] = field(default_factory=list)
+    max_workers: int = 40
+    timeout_seconds: float = 1.0
+
+
+@dataclass
 class DatabaseConfig:
     """Database configuration."""
 
@@ -139,6 +149,7 @@ class AppConfig:
 
     scan: ScanConfig = field(default_factory=ScanConfig)
     arp: ArpConfig = field(default_factory=ArpConfig)
+    ping_sweep: PingSweepConfig = field(default_factory=PingSweepConfig)
     snmp: SnmpConfig = field(default_factory=SnmpConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     alert: AlertConfig = field(default_factory=AlertConfig)
@@ -220,6 +231,15 @@ def _parse_raw_config(raw: dict) -> AppConfig:
             min_delay_seconds=a.get("min_delay_seconds", config.arp.min_delay_seconds),
             max_delay_seconds=a.get("max_delay_seconds", config.arp.max_delay_seconds),
             jitter=a.get("jitter", config.arp.jitter),
+        )
+
+    if "ping_sweep" in raw:
+        ps = raw["ping_sweep"]
+        config.ping_sweep = PingSweepConfig(
+            enabled=ps.get("enabled", config.ping_sweep.enabled),
+            subnets=ps.get("subnets", config.ping_sweep.subnets),
+            max_workers=ps.get("max_workers", config.ping_sweep.max_workers),
+            timeout_seconds=ps.get("timeout_seconds", config.ping_sweep.timeout_seconds),
         )
 
     if "snmp" in raw:
