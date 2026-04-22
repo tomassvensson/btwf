@@ -94,6 +94,17 @@ class WhitelistEntry:
 
 
 @dataclass
+class PresenceWatchEntry:
+    """A device to watch for presence state changes."""
+
+    hostname: str
+    name: str = ""
+    stable_minutes: int = 180
+    notify_on_appear: bool = True
+    notify_on_disappear: bool = True
+
+
+@dataclass
 class OuiConfig:
     """OUI database update settings."""
 
@@ -159,6 +170,7 @@ class AppConfig:
     api: ApiConfig = field(default_factory=ApiConfig)
     mqtt: MqttConfig = field(default_factory=MqttConfig)
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
+    presence_watches: list[PresenceWatchEntry] = field(default_factory=list)
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -322,6 +334,19 @@ def _parse_raw_config(raw: dict) -> AppConfig:
         config.metrics = MetricsConfig(
             enabled=me.get("enabled", config.metrics.enabled),
         )
+
+    if "presence_watches" in raw:
+        config.presence_watches = [
+            PresenceWatchEntry(
+                hostname=entry.get("hostname", ""),
+                name=entry.get("name", ""),
+                stable_minutes=entry.get("stable_minutes", 180),
+                notify_on_appear=entry.get("notify_on_appear", True),
+                notify_on_disappear=entry.get("notify_on_disappear", True),
+            )
+            for entry in raw["presence_watches"]
+            if isinstance(entry, dict) and entry.get("hostname")
+        ]
 
     return config
 

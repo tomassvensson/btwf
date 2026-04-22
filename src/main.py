@@ -33,6 +33,7 @@ from src.mdns_scanner import MdnsDevice
 from src.models import Device, VisibilityWindow
 from src.network_discovery import NetworkDevice, ping_sweep, scan_arp_table
 from src.oui_lookup import is_randomized_mac
+from src.presence_monitor import PresenceMonitor
 from src.ssdp_scanner import SsdpDevice
 from src.whitelist import WhitelistManager
 from src.wifi_scanner import WifiNetwork, scan_wifi_networks
@@ -212,6 +213,7 @@ def run_scan(config: AppConfig | None = None) -> None:
 
     whitelist = WhitelistManager(config)
     alert_mgr = AlertManager(config.alert)
+    presence_monitor = PresenceMonitor(config.presence_watches)
 
     # Initialize MQTT if enabled
     mqtt_pub = None
@@ -240,7 +242,7 @@ def run_scan(config: AppConfig | None = None) -> None:
         while not _shutdown_requested:
             scan_number += 1
             logger.info("--- Scan cycle #%d ---", scan_number)
-            _run_single_scan(engine, config, whitelist, alert_mgr, mqtt_pub)
+            _run_single_scan(engine, config, whitelist, alert_mgr, presence_monitor, mqtt_pub)
 
             if _shutdown_requested:
                 break
@@ -257,7 +259,7 @@ def run_scan(config: AppConfig | None = None) -> None:
 
         logger.info("Continuous scanning stopped after %d cycles.", scan_number)
     else:
-        _run_single_scan(engine, config, whitelist, alert_mgr, mqtt_pub)
+        _run_single_scan(engine, config, whitelist, alert_mgr, presence_monitor, mqtt_pub)
 
     # Cleanup MQTT
     if mqtt_pub is not None:
@@ -269,6 +271,7 @@ def _run_single_scan(
     config: AppConfig,
     whitelist: WhitelistManager,
     alert_mgr: AlertManager,
+    presence_monitor: PresenceMonitor,
     mqtt_publisher: object | None = None,
 ) -> None:
     """Execute one scan cycle across all enabled scanners.
@@ -278,6 +281,7 @@ def _run_single_scan(
         config: Application configuration.
         whitelist: Whitelist manager.
         alert_mgr: Alert manager.
+        presence_monitor: Presence state change monitor.
         mqtt_publisher: Optional MQTT publisher.
     """
     scan_start = time.time()
@@ -288,6 +292,7 @@ def _run_single_scan(
         wifi_results, bt_results = _store_scan_results(session, scan_data, whitelist, alert_mgr, gap)
         _categorize_all_devices(session, whitelist)
         _alert_new_tracked_devices(wifi_results + bt_results, whitelist, alert_mgr)
+        presence_monitor.check(session, gap, datetime.now())
         session.flush()
         _display_results(session, whitelist)
 
