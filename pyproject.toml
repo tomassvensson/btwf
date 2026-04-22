@@ -4,13 +4,12 @@ version = "0.1.0"
 description = "Track WiFi and Bluetooth device visibility over time"
 requires-python = ">=3.10"
 readme = "README.md"
-license = {text = "Private"}
+license = {text = "MIT"}
 
 dependencies = [
     "sqlalchemy>=2.0",
     "mac-vendor-lookup>=0.1.12",
     "aiohttp>=3.13.5",
-    "zeroconf>=0.131.0",
     "tabulate>=0.9.0",
     "pyyaml>=6.0",
     "fastapi>=0.115.0",
@@ -19,6 +18,7 @@ dependencies = [
     "alembic>=1.15.0",
     "prometheus-client>=0.21.0",
     "paho-mqtt>=2.1.0",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +31,8 @@ dev = [
     "types-pyyaml>=6.0",
     "types-tabulate>=0.9",
     "httpx>=0.27.0",
+    "bandit>=1.7",
+    "pre-commit>=3.7",
 ]
 monitor = [
     "scapy>=2.5",
