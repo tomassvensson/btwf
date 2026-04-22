@@ -40,26 +40,32 @@ def in_memory_engine():
 class TestFormatSignal:
     """Tests for signal strength formatting."""
 
+    @pytest.mark.timeout(30)
     def test_none(self) -> None:
         assert _format_signal(None) == "N/A"
 
+    @pytest.mark.timeout(30)
     def test_excellent(self) -> None:
         result = _format_signal(-45.0)
         assert "Excellent" in result
         assert "-45" in result
 
+    @pytest.mark.timeout(30)
     def test_good(self) -> None:
         result = _format_signal(-55.0)
         assert "Good" in result
 
+    @pytest.mark.timeout(30)
     def test_fair(self) -> None:
         result = _format_signal(-65.0)
         assert "Fair" in result
 
+    @pytest.mark.timeout(30)
     def test_weak(self) -> None:
         result = _format_signal(-75.0)
         assert "Weak" in result
 
+    @pytest.mark.timeout(30)
     def test_very_weak(self) -> None:
         result = _format_signal(-90.0)
         assert "Very Weak" in result
@@ -68,9 +74,11 @@ class TestFormatSignal:
 class TestFormatTime:
     """Tests for time formatting."""
 
+    @pytest.mark.timeout(30)
     def test_none(self) -> None:
         assert _format_time(None) == "N/A"
 
+    @pytest.mark.timeout(30)
     def test_datetime(self) -> None:
         dt = datetime(2026, 3, 9, 14, 30, 0)
         result = _format_time(dt)
@@ -81,28 +89,36 @@ class TestFormatTime:
 class TestShortenVendorName:
     """Tests for automatic vendor name shortening."""
 
+    @pytest.mark.timeout(30)
     def test_strips_inc(self) -> None:
         assert _shorten_vendor_name("Espressif Inc.") == "Espressif"
 
+    @pytest.mark.timeout(30)
     def test_strips_corporation(self) -> None:
         assert _shorten_vendor_name("Microsoft Corporation") == "Microsoft"
 
+    @pytest.mark.timeout(30)
     def test_strips_co_ltd(self) -> None:
         assert _shorten_vendor_name("Samsung Electronics Co.,Ltd") == "Samsung"
 
+    @pytest.mark.timeout(30)
     def test_strips_gmbh(self) -> None:
         assert _shorten_vendor_name("BSH Hausgeräte GmbH") == "BSH Hausgeräte"
 
+    @pytest.mark.timeout(30)
     def test_strips_technologies(self) -> None:
         assert _shorten_vendor_name("TP-LINK TECHNOLOGIES CO.,LTD.") == "TP-LINK"
 
+    @pytest.mark.timeout(30)
     def test_strips_parenthetical(self) -> None:
         result = _shorten_vendor_name("LG Electronics (Mobile Communications)")
         assert result == "LG"
 
+    @pytest.mark.timeout(30)
     def test_preserves_simple_name(self) -> None:
         assert _shorten_vendor_name("Apple") == "Apple"
 
+    @pytest.mark.timeout(30)
     def test_preserves_short_name(self) -> None:
         assert _shorten_vendor_name("Dell") == "Dell"
 
@@ -110,15 +126,18 @@ class TestShortenVendorName:
 class TestFriendlyVendor:
     """Tests for vendor name display."""
 
+    @pytest.mark.timeout(30)
     def test_known_vendor(self) -> None:
         result = _friendly_vendor("Google, Inc.", "AA:BB:CC:DD:EE:FF")
         assert result == "Google"
 
+    @pytest.mark.timeout(30)
     def test_randomized_mac_no_vendor(self) -> None:
         # Locally administered (randomized) MAC: bit 1 of first byte set
         result = _friendly_vendor(None, "FA:BB:CC:DD:EE:FF")
         assert "Randomized" in result
 
+    @pytest.mark.timeout(30)
     def test_no_vendor_no_randomized(self) -> None:
         result = _friendly_vendor(None, "00:BB:CC:DD:EE:FF")
         assert "Unknown" in result
@@ -127,6 +146,7 @@ class TestFriendlyVendor:
 class TestBestName:
     """Tests for best device name selection."""
 
+    @pytest.mark.timeout(30)
     def test_device_name_preferred(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -136,6 +156,7 @@ class TestBestName:
         )
         assert _best_name(device) == "MyRouter"
 
+    @pytest.mark.timeout(30)
     def test_hostname_when_no_name(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -144,6 +165,7 @@ class TestBestName:
         )
         assert _best_name(device) == "my-server"
 
+    @pytest.mark.timeout(30)
     def test_ssid_when_no_name_or_hostname(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -152,6 +174,7 @@ class TestBestName:
         )
         assert _best_name(device) == "Home"
 
+    @pytest.mark.timeout(30)
     def test_vendor_when_no_name_or_ssid(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -160,6 +183,7 @@ class TestBestName:
         )
         assert _best_name(device) == "TP-Link device"
 
+    @pytest.mark.timeout(30)
     def test_mac_as_fallback(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -167,6 +191,7 @@ class TestBestName:
         )
         assert _best_name(device) == "AA:BB:CC:DD:EE:FF"
 
+    @pytest.mark.timeout(30)
     def test_hidden_ssid_uses_vendor(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -180,12 +205,14 @@ class TestBestName:
 class TestDisplayResults:
     """Tests for result display."""
 
+    @pytest.mark.timeout(30)
     def test_no_devices(self, in_memory_engine, capsys) -> None:
         with get_session(in_memory_engine) as session:
             _display_results(session)
         captured = capsys.readouterr()
         assert "No devices found" in captured.out
 
+    @pytest.mark.timeout(30)
     def test_with_devices(self, in_memory_engine, capsys) -> None:
         now = datetime.now(timezone.utc)
         with get_session(in_memory_engine) as session:
@@ -228,6 +255,7 @@ class TestRunScan:
     @patch("src.main.scan_bluetooth_devices")
     @patch("src.main.scan_wifi_networks")
     @patch("src.main.init_database")
+    @pytest.mark.timeout(30)
     def test_full_scan_with_mocked_scanners(
         self,
         mock_init_db,
@@ -285,6 +313,7 @@ class TestRunScan:
     @patch("src.main.scan_bluetooth_devices")
     @patch("src.main.scan_wifi_networks")
     @patch("src.main.init_database")
+    @pytest.mark.timeout(30)
     def test_scan_handles_scanner_errors(
         self,
         mock_init_db,
@@ -312,6 +341,7 @@ class TestRunScan:
 class TestHandleShutdown:
     """Tests for _handle_shutdown signal handler."""
 
+    @pytest.mark.timeout(30)
     def test_sets_shutdown_flag(self) -> None:
         import src.main as m
 
@@ -321,6 +351,7 @@ class TestHandleShutdown:
         # Reset for other tests
         m._shutdown_requested = False
 
+    @pytest.mark.timeout(30)
     def test_sets_flag_with_sigterm(self) -> None:
         import src.main as m
 
@@ -334,6 +365,7 @@ class TestFriendlyVendorEdgeCases:
     """Additional edge-case tests for _friendly_vendor."""
 
     @patch("src.main.is_randomized_mac", side_effect=ValueError("bad mac"))
+    @pytest.mark.timeout(30)
     def test_value_error_returns_unknown(self, _mock_rand: MagicMock) -> None:
         result = _friendly_vendor(None, "INVALID")
         assert result == "(Unknown vendor)"
@@ -342,6 +374,7 @@ class TestFriendlyVendorEdgeCases:
 class TestBestNameWhitelist:
     """Tests for _best_name with whitelist integration."""
 
+    @pytest.mark.timeout(30)
     def test_whitelist_custom_name(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -352,6 +385,7 @@ class TestBestNameWhitelist:
         wl.get_custom_name.return_value = "My Printer (Whitelist)"
         assert _best_name(device, wl) == "My Printer (Whitelist)"
 
+    @pytest.mark.timeout(30)
     def test_whitelist_no_custom_name_falls_through(self) -> None:
         device = Device(
             mac_address="AA:BB:CC:DD:EE:FF",
@@ -366,6 +400,7 @@ class TestBestNameWhitelist:
 class TestUpsertMdnsDevice:
     """Tests for _upsert_mdns_device — insert and update paths."""
 
+    @pytest.mark.timeout(30)
     def test_insert_new_mdns_device(self, in_memory_engine) -> None:
         from src.mdns_scanner import MdnsDevice
 
@@ -391,6 +426,7 @@ class TestUpsertMdnsDevice:
             assert "mDNS: ipp" in device.extra_info
             alert_mgr.on_new_device.assert_called_once()
 
+    @pytest.mark.timeout(30)
     def test_update_existing_mdns_device(self, in_memory_engine) -> None:
         from src.mdns_scanner import MdnsDevice
 
@@ -425,6 +461,7 @@ class TestUpsertMdnsDevice:
             # on_new_device should NOT be called for updates
             alert_mgr.on_new_device.assert_not_called()
 
+    @pytest.mark.timeout(30)
     def test_skip_device_without_mac(self, in_memory_engine) -> None:
         from src.mdns_scanner import MdnsDevice
 
@@ -445,6 +482,7 @@ class TestUpsertMdnsDevice:
 class TestUpsertSsdpDevice:
     """Tests for _upsert_ssdp_device — insert and update paths."""
 
+    @pytest.mark.timeout(30)
     def test_insert_new_ssdp_device(self, in_memory_engine) -> None:
         from src.ssdp_scanner import SsdpDevice
 
@@ -468,6 +506,7 @@ class TestUpsertSsdpDevice:
             assert "SSDP: MediaServer/1.0" in device.extra_info
             alert_mgr.on_new_device.assert_called_once()
 
+    @pytest.mark.timeout(30)
     def test_update_existing_ssdp_device(self, in_memory_engine) -> None:
         from src.ssdp_scanner import SsdpDevice
 
@@ -498,6 +537,7 @@ class TestUpsertSsdpDevice:
             assert "NewServer/2.0" in device.extra_info
             alert_mgr.on_new_device.assert_not_called()
 
+    @pytest.mark.timeout(30)
     def test_skip_device_without_mac(self, in_memory_engine) -> None:
         from src.ssdp_scanner import SsdpDevice
 
@@ -514,6 +554,7 @@ class TestUpsertSsdpDevice:
 class TestUpsertNetworkDeviceUpdate:
     """Tests for _upsert_network_device — update path."""
 
+    @pytest.mark.timeout(30)
     def test_update_existing_network_device(self, in_memory_engine) -> None:
         from src.network_discovery import NetworkDevice
 
@@ -550,6 +591,7 @@ class TestUpsertNetworkDeviceUpdate:
 class TestCategorizeAllDevices:
     """Tests for _categorize_all_devices with whitelist category."""
 
+    @pytest.mark.timeout(30)
     def test_whitelist_category_applied(self, in_memory_engine) -> None:
         wl = MagicMock()
         entry = MagicMock()
@@ -577,6 +619,7 @@ class TestCategorizeAllDevices:
 class TestDisplayWhitelistedDevice:
     """Tests for displaying whitelisted devices with checkmark."""
 
+    @pytest.mark.timeout(30)
     def test_whitelisted_device_has_checkmark(self, in_memory_engine, capsys) -> None:
         now = datetime.now(timezone.utc)
         wl = MagicMock()
@@ -612,6 +655,7 @@ class TestImportAndScanWrappers:
     """Tests for _import_and_scan_mdns and _import_and_scan_ssdp."""
 
     @patch("src.mdns_scanner.scan_mdns_services")
+    @pytest.mark.timeout(30)
     def test_import_and_scan_mdns(self, mock_scan: MagicMock) -> None:
         from src.mdns_scanner import MdnsDevice
 
@@ -620,6 +664,7 @@ class TestImportAndScanWrappers:
         assert len(result) == 1
 
     @patch("src.ssdp_scanner.scan_ssdp_devices")
+    @pytest.mark.timeout(30)
     def test_import_and_scan_ssdp(self, mock_scan: MagicMock) -> None:
         from src.ssdp_scanner import SsdpDevice
 
@@ -632,6 +677,7 @@ class TestResolveNetbios:
     """Tests for _resolve_netbios helper."""
 
     @patch("src.netbios_scanner.resolve_netbios_names")
+    @pytest.mark.timeout(30)
     def test_resolve_success(self, mock_resolve: MagicMock) -> None:
         from src.network_discovery import NetworkDevice
 
@@ -645,6 +691,7 @@ class TestResolveNetbios:
         assert result == {"192.168.1.1": "DESKTOP-PC"}
 
     @patch("src.netbios_scanner.resolve_netbios_names", side_effect=RuntimeError("fail"))
+    @pytest.mark.timeout(30)
     def test_resolve_error_returns_empty(self, _mock: MagicMock) -> None:
         from src.network_discovery import NetworkDevice
 
@@ -658,6 +705,7 @@ class TestContinuousMode:
 
     @patch("src.main._run_single_scan")
     @patch("src.main.init_database")
+    @pytest.mark.timeout(30)
     def test_continuous_mode_shutdown(
         self,
         mock_init_db: MagicMock,
@@ -692,6 +740,7 @@ class TestRunScanDefaultConfig:
     @patch("src.main._run_single_scan")
     @patch("src.main.init_database")
     @patch("src.main.load_config")
+    @pytest.mark.timeout(30)
     def test_loads_default_config_when_none(
         self,
         mock_load_config: MagicMock,
@@ -722,6 +771,7 @@ class TestRunScanWithAllScanners:
     @patch("src.main.scan_bluetooth_devices")
     @patch("src.main.scan_wifi_networks")
     @patch("src.main.init_database")
+    @pytest.mark.timeout(30)
     def test_all_scanners_enabled(
         self,
         mock_init_db: MagicMock,
@@ -784,6 +834,7 @@ class TestMainEntryPoint:
 
     @patch("src.main.run_scan", side_effect=KeyboardInterrupt)
     @patch("src.main.load_config")
+    @pytest.mark.timeout(30)
     def test_keyboard_interrupt_exit_zero(self, mock_cfg: MagicMock, _mock_scan: MagicMock) -> None:
         mock_cfg.return_value.api.enabled = False
         with pytest.raises(SystemExit) as exc_info:
@@ -792,6 +843,7 @@ class TestMainEntryPoint:
 
     @patch("src.main.run_scan", side_effect=RuntimeError("fatal"))
     @patch("src.main.load_config")
+    @pytest.mark.timeout(30)
     def test_fatal_error_exit_one(self, mock_cfg: MagicMock, _mock_scan: MagicMock) -> None:
         mock_cfg.return_value.api.enabled = False
         with pytest.raises(SystemExit) as exc_info:
@@ -800,6 +852,7 @@ class TestMainEntryPoint:
 
     @patch("src.main.run_scan")
     @patch("src.main.load_config")
+    @pytest.mark.timeout(30)
     def test_normal_exit(self, mock_cfg: MagicMock, _mock_scan: MagicMock) -> None:
         mock_cfg.return_value.api.enabled = False
         # Should complete without raising

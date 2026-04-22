@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.ipv6_scanner import (
     Ipv6Neighbor,
     _parse_linux_output,
@@ -38,6 +40,7 @@ fe80::3 dev wlan0 lladdr cc:dd:ee:ff:00:11 DELAY
 class TestParseWindowsOutput:
     """Tests for _parse_windows_output."""
 
+    @pytest.mark.timeout(30)
     def test_parses_multiple_interfaces(self) -> None:
         neighbors = _parse_windows_output(WINDOWS_OUTPUT)
         # Should get: fe80::1, fe80::6e38..., ff02::1, fe80::abcd
@@ -48,6 +51,7 @@ class TestParseWindowsOutput:
         assert "11:22:33:44:55:66" in macs
         assert "FF:FF:FF:FF:FF:FF" not in macs
 
+    @pytest.mark.timeout(30)
     def test_interface_assignment(self) -> None:
         neighbors = _parse_windows_output(WINDOWS_OUTPUT)
         ethernet = [n for n in neighbors if n.interface == "Ethernet"]
@@ -55,6 +59,7 @@ class TestParseWindowsOutput:
         assert len(ethernet) >= 2
         assert len(wifi) >= 1
 
+    @pytest.mark.timeout(30)
     def test_mac_format_normalized(self) -> None:
         neighbors = _parse_windows_output(WINDOWS_OUTPUT)
         for n in neighbors:
@@ -62,14 +67,17 @@ class TestParseWindowsOutput:
             assert "-" not in n.mac_address
             assert n.mac_address == n.mac_address.upper()
 
+    @pytest.mark.timeout(30)
     def test_state_preserved(self) -> None:
         neighbors = _parse_windows_output(WINDOWS_OUTPUT)
         reachable = [n for n in neighbors if n.state == "Reachable"]
         assert len(reachable) >= 1
 
+    @pytest.mark.timeout(30)
     def test_empty_output(self) -> None:
         assert _parse_windows_output("") == []
 
+    @pytest.mark.timeout(30)
     def test_skips_unreachable(self) -> None:
         neighbors = _parse_windows_output(WINDOWS_OUTPUT)
         states = {n.state.lower() for n in neighbors}
@@ -79,27 +87,32 @@ class TestParseWindowsOutput:
 class TestParseLinuxOutput:
     """Tests for _parse_linux_output."""
 
+    @pytest.mark.timeout(30)
     def test_parses_neighbors(self) -> None:
         neighbors = _parse_linux_output(LINUX_OUTPUT)
         # Should get: fe80::1, fe80::2, fe80::3 (not FAILED)
         assert len(neighbors) == 3
 
+    @pytest.mark.timeout(30)
     def test_skips_failed(self) -> None:
         neighbors = _parse_linux_output(LINUX_OUTPUT)
         states = {n.state.lower() for n in neighbors}
         assert "failed" not in states
 
+    @pytest.mark.timeout(30)
     def test_interface_captured(self) -> None:
         neighbors = _parse_linux_output(LINUX_OUTPUT)
         interfaces = {n.interface for n in neighbors}
         assert "eth0" in interfaces
         assert "wlan0" in interfaces
 
+    @pytest.mark.timeout(30)
     def test_mac_uppercase(self) -> None:
         neighbors = _parse_linux_output(LINUX_OUTPUT)
         for n in neighbors:
             assert n.mac_address == n.mac_address.upper()
 
+    @pytest.mark.timeout(30)
     def test_empty_output(self) -> None:
         assert _parse_linux_output("") == []
 
@@ -109,6 +122,7 @@ class TestScanIpv6Neighbors:
 
     @patch("src.ipv6_scanner.platform")
     @patch("src.ipv6_scanner.subprocess")
+    @pytest.mark.timeout(30)
     def test_windows_platform(self, mock_subprocess, mock_platform) -> None:
         mock_platform.system.return_value = "Windows"
         mock_result = MagicMock()
@@ -122,6 +136,7 @@ class TestScanIpv6Neighbors:
 
     @patch("src.ipv6_scanner.platform")
     @patch("src.ipv6_scanner.subprocess")
+    @pytest.mark.timeout(30)
     def test_linux_platform(self, mock_subprocess, mock_platform) -> None:
         mock_platform.system.return_value = "Linux"
         mock_result = MagicMock()
@@ -134,6 +149,7 @@ class TestScanIpv6Neighbors:
 
     @patch("src.ipv6_scanner.platform")
     @patch("src.ipv6_scanner.subprocess")
+    @pytest.mark.timeout(30)
     def test_command_not_found(self, mock_subprocess, mock_platform) -> None:
         mock_platform.system.return_value = "Linux"
         mock_subprocess.run.side_effect = FileNotFoundError("ip not found")
@@ -146,6 +162,7 @@ class TestScanIpv6Neighbors:
 
     @patch("src.ipv6_scanner.platform")
     @patch("src.ipv6_scanner.subprocess")
+    @pytest.mark.timeout(30)
     def test_nonzero_return_code(self, mock_subprocess, mock_platform) -> None:
         mock_platform.system.return_value = "Windows"
         mock_result = MagicMock()
@@ -160,6 +177,7 @@ class TestScanIpv6Neighbors:
 class TestIpv6NeighborDataclass:
     """Tests for Ipv6Neighbor dataclass."""
 
+    @pytest.mark.timeout(30)
     def test_repr(self) -> None:
         n = Ipv6Neighbor(ipv6_address="fe80::1", mac_address="AA:BB:CC:DD:EE:FF", state="Reachable")
         r = repr(n)
@@ -167,6 +185,7 @@ class TestIpv6NeighborDataclass:
         assert "AA:BB:CC:DD:EE:FF" in r
         assert "Reachable" in r
 
+    @pytest.mark.timeout(30)
     def test_defaults(self) -> None:
         n = Ipv6Neighbor(ipv6_address="fe80::1", mac_address="AA:BB:CC:DD:EE:FF")
         assert n.interface == ""

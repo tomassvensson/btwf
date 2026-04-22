@@ -1,5 +1,7 @@
 """Tests for WiFi scanner module."""
 
+import pytest
+
 from src.wifi_scanner import (
     WifiNetwork,
     _parse_netsh_output,
@@ -10,18 +12,23 @@ from src.wifi_scanner import (
 class TestSignalPercentToDbm:
     """Tests for signal strength conversion."""
 
+    @pytest.mark.timeout(30)
     def test_zero_percent(self) -> None:
         assert signal_percent_to_dbm(0) == -100.0
 
+    @pytest.mark.timeout(30)
     def test_hundred_percent(self) -> None:
         assert signal_percent_to_dbm(100) == -50.0
 
+    @pytest.mark.timeout(30)
     def test_fifty_percent(self) -> None:
         assert signal_percent_to_dbm(50) == -75.0
 
+    @pytest.mark.timeout(30)
     def test_negative_clamped(self) -> None:
         assert signal_percent_to_dbm(-10) == -100.0
 
+    @pytest.mark.timeout(30)
     def test_over_hundred_clamped(self) -> None:
         assert signal_percent_to_dbm(150) == -50.0
 
@@ -64,59 +71,71 @@ SSID 3 :
          Channel            : 1
 """
 
+    @pytest.mark.timeout(30)
     def test_parses_multiple_networks(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         assert len(networks) == 4  # 2 SSIDs with 1 BSSID each + 1 SSID with 2 BSSIDs + 1 hidden
 
+    @pytest.mark.timeout(30)
     def test_parses_ssid(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         ssids = [n.ssid for n in networks]
         assert "MyHomeNetwork" in ssids
         assert "NeighborWiFi" in ssids
 
+    @pytest.mark.timeout(30)
     def test_parses_hidden_ssid(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         hidden = [n for n in networks if n.ssid == "<Hidden>"]
         assert len(hidden) == 1
 
+    @pytest.mark.timeout(30)
     def test_parses_bssid(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         bssids = [n.bssid for n in networks]
         assert "AA:BB:CC:DD:EE:FF" in bssids
 
+    @pytest.mark.timeout(30)
     def test_parses_signal(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         home = next(n for n in networks if n.ssid == "MyHomeNetwork")
         assert home.signal_percent == 85
 
+    @pytest.mark.timeout(30)
     def test_parses_channel(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         home = next(n for n in networks if n.ssid == "MyHomeNetwork")
         assert home.channel == 36
 
+    @pytest.mark.timeout(30)
     def test_parses_radio_type(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         home = next(n for n in networks if n.ssid == "MyHomeNetwork")
         assert home.radio_type == "802.11ac"
 
+    @pytest.mark.timeout(30)
     def test_parses_authentication(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         home = next(n for n in networks if n.ssid == "MyHomeNetwork")
         assert home.authentication == "WPA2-Personal"
 
+    @pytest.mark.timeout(30)
     def test_parses_encryption(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         home = next(n for n in networks if n.ssid == "MyHomeNetwork")
         assert home.encryption == "CCMP"
 
+    @pytest.mark.timeout(30)
     def test_empty_output(self) -> None:
         networks = _parse_netsh_output("")
         assert networks == []
 
+    @pytest.mark.timeout(30)
     def test_no_networks_output(self) -> None:
         networks = _parse_netsh_output("There are 0 networks currently visible.\n")
         assert networks == []
 
+    @pytest.mark.timeout(30)
     def test_vendor_lookup_applied(self) -> None:
         networks = _parse_netsh_output(self.SAMPLE_OUTPUT)
         netgear = [n for n in networks if n.bssid == "00:14:6C:DE:AD:01"]
@@ -128,6 +147,7 @@ SSID 3 :
 class TestWifiNetworkDataclass:
     """Tests for WifiNetwork dataclass."""
 
+    @pytest.mark.timeout(30)
     def test_creation(self) -> None:
         network = WifiNetwork(
             ssid="Test",
@@ -143,6 +163,7 @@ class TestWifiNetworkDataclass:
         assert network.ssid == "Test"
         assert network.signal_percent == 75
 
+    @pytest.mark.timeout(30)
     def test_vendor_auto_lookup(self) -> None:
         network = WifiNetwork(
             ssid="Test",

@@ -1,5 +1,7 @@
 """Tests for alert management system."""
 
+import pytest
+
 from src.alert import AlertManager
 from src.config import AlertConfig
 
@@ -7,6 +9,7 @@ from src.config import AlertConfig
 class TestAlertManager:
     """Tests for AlertManager."""
 
+    @pytest.mark.timeout(30)
     def test_alert_disabled(self) -> None:
         config = AlertConfig(enabled=False)
         mgr = AlertManager(config)
@@ -16,6 +19,7 @@ class TestAlertManager:
         )
         assert mgr.alert_count == 0
 
+    @pytest.mark.timeout(30)
     def test_alert_enabled_increments_count(self) -> None:
         config = AlertConfig(enabled=True, log_new_devices=False)
         mgr = AlertManager(config)
@@ -27,6 +31,7 @@ class TestAlertManager:
         )
         assert mgr.alert_count == 1
 
+    @pytest.mark.timeout(30)
     def test_alert_whitelisted_device(self) -> None:
         config = AlertConfig(enabled=True, log_new_devices=True)
         mgr = AlertManager(config)
@@ -39,6 +44,7 @@ class TestAlertManager:
         )
         assert mgr.alert_count == 1
 
+    @pytest.mark.timeout(30)
     def test_alert_unknown_device(self) -> None:
         config = AlertConfig(enabled=True, log_new_devices=True)
         mgr = AlertManager(config)
@@ -49,6 +55,7 @@ class TestAlertManager:
         )
         assert mgr.alert_count == 1
 
+    @pytest.mark.timeout(30)
     def test_multiple_alerts(self) -> None:
         config = AlertConfig(enabled=True)
         mgr = AlertManager(config)
@@ -59,6 +66,7 @@ class TestAlertManager:
             )
         assert mgr.alert_count == 5
 
+    @pytest.mark.timeout(30)
     def test_alert_with_log_file(self, tmp_path) -> None:
         log_file = str(tmp_path / "alerts.log")
         config = AlertConfig(enabled=True, log_file=log_file, log_new_devices=True)
@@ -71,6 +79,7 @@ class TestAlertManager:
         )
         assert mgr.alert_count == 1
 
+    @pytest.mark.timeout(30)
     def test_alert_log_file_failure(self, tmp_path) -> None:
         """Test that AlertManager handles log file creation failure gracefully."""
         config = AlertConfig(enabled=True, log_file="/nonexistent/dir/alerts.log")
@@ -78,6 +87,7 @@ class TestAlertManager:
         mgr = AlertManager(config)
         assert mgr.alert_count == 0
 
+    @pytest.mark.timeout(30)
     def test_no_vendor_no_name(self) -> None:
         config = AlertConfig(enabled=True, log_new_devices=True)
         mgr = AlertManager(config)

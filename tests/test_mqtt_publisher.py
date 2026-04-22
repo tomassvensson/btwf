@@ -2,11 +2,14 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestMqttPublisherInit:
     """Tests for MqttPublisher initialization."""
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_init_default_params(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -21,6 +24,7 @@ class TestMqttPublisherInit:
         assert pub._connected is False
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_init_with_auth(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -32,6 +36,7 @@ class TestMqttPublisherInit:
         mock_client.username_pw_set.assert_called_once_with("user", "pass")
 
     @patch("src.mqtt_publisher.mqtt", None)
+    @pytest.mark.timeout(30)
     def test_init_without_paho(self) -> None:
         from src.mqtt_publisher import MqttPublisher
 
@@ -43,6 +48,7 @@ class TestMqttConnect:
     """Tests for connect/disconnect."""
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_connect_success(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -57,6 +63,7 @@ class TestMqttConnect:
         mock_client.loop_start.assert_called_once()
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_connect_failure(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_client.connect.side_effect = ConnectionRefusedError("refused")
@@ -70,6 +77,7 @@ class TestMqttConnect:
         assert result is False
 
     @patch("src.mqtt_publisher.mqtt", None)
+    @pytest.mark.timeout(30)
     def test_connect_no_client(self) -> None:
         from src.mqtt_publisher import MqttPublisher
 
@@ -77,6 +85,7 @@ class TestMqttConnect:
         assert pub.connect() is False
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_disconnect(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -95,6 +104,7 @@ class TestMqttCallbacks:
     """Tests for on_connect/on_disconnect callbacks."""
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_on_connect_sets_flag(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -107,6 +117,7 @@ class TestMqttCallbacks:
         assert pub._connected is True
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_on_disconnect_clears_flag(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -124,6 +135,7 @@ class TestPublishDeviceEvent:
     """Tests for publish_device_event."""
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_publish_succeeds(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_result = MagicMock()
@@ -149,6 +161,7 @@ class TestPublishDeviceEvent:
         assert topic.endswith("/new")
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_publish_not_connected(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -162,6 +175,7 @@ class TestPublishDeviceEvent:
         assert result is False
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_publish_error(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_client.publish.side_effect = RuntimeError("publish failed")
@@ -180,6 +194,7 @@ class TestPublishScanSummary:
     """Tests for publish_scan_summary."""
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_scan_summary(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_result = MagicMock()
@@ -198,6 +213,7 @@ class TestPublishScanSummary:
         assert topic == "test/scan/summary"
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_scan_summary_not_connected(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client
@@ -214,6 +230,7 @@ class TestIsConnectedProperty:
     """Tests for is_connected property."""
 
     @patch("src.mqtt_publisher.mqtt")
+    @pytest.mark.timeout(30)
     def test_reflects_state(self, mock_mqtt) -> None:
         mock_client = MagicMock()
         mock_mqtt.Client.return_value = mock_client

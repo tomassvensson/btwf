@@ -11,6 +11,7 @@ class TestScanWifiNetworks:
     """Tests for scan_wifi_networks with mocked subprocess."""
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_successful_scan(self, mock_run) -> None:
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -31,18 +32,21 @@ SSID 1 : TestNetwork
         assert networks[0].ssid == "TestNetwork"
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_netsh_failure(self, mock_run) -> None:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Error")
         with pytest.raises(RuntimeError, match="WiFi scan failed"):
             scan_wifi_networks()
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_netsh_not_found(self, mock_run) -> None:
         mock_run.side_effect = FileNotFoundError()
         with pytest.raises(RuntimeError, match="netsh not found"):
             scan_wifi_networks()
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_timeout(self, mock_run) -> None:
         import subprocess
 
@@ -55,6 +59,7 @@ class TestGetWifiInterfaces:
     """Tests for get_wifi_interfaces with mocked subprocess."""
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_successful_query(self, mock_run) -> None:
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -82,12 +87,14 @@ class TestGetWifiInterfaces:
         assert len(interfaces) >= 1
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_no_interfaces(self, mock_run) -> None:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
         interfaces = get_wifi_interfaces()
         assert interfaces == []
 
     @patch("src.wifi_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_command_not_found(self, mock_run) -> None:
         mock_run.side_effect = FileNotFoundError()
         interfaces = get_wifi_interfaces()

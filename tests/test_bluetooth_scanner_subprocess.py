@@ -11,6 +11,7 @@ class TestScanBluetoothDevices:
     """Tests for scan_bluetooth_devices with mocked subprocess."""
 
     @patch("src.bluetooth_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_successful_scan(self, mock_run) -> None:
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -22,18 +23,21 @@ class TestScanBluetoothDevices:
         assert devices[0].device_name == "Test Phone"
 
     @patch("src.bluetooth_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_empty_scan(self, mock_run) -> None:
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         devices = scan_bluetooth_devices()
         assert devices == []
 
     @patch("src.bluetooth_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_powershell_not_found(self, mock_run) -> None:
         mock_run.side_effect = FileNotFoundError()
         with pytest.raises(RuntimeError, match="PowerShell"):
             scan_bluetooth_devices()
 
     @patch("src.bluetooth_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_timeout(self, mock_run) -> None:
         import subprocess
 
@@ -42,6 +46,7 @@ class TestScanBluetoothDevices:
             scan_bluetooth_devices()
 
     @patch("src.bluetooth_scanner.subprocess.run")
+    @pytest.mark.timeout(30)
     def test_scan_with_warnings(self, mock_run) -> None:
         """Scan continues even if PowerShell emits warnings."""
         mock_run.return_value = MagicMock(
