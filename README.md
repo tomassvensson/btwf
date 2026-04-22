@@ -158,6 +158,4 @@ See [ADR-001](docs/adr/001-technology-choice.md) for the technology choice ratio
 - The system operates in read-only/passive scanning mode
 - No connections are established with discovered devices
 
-## License
 
-Private project — not yet open source.
