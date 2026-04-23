@@ -36,6 +36,9 @@ BtWiFi uses multiple discovery protocols to scan for nearby wireless and network
 - **OUI Lookup:** IEEE MA-L (OUI) database via mac-vendor-lookup
 - **Configuration:** PyYAML
 - **Testing:** pytest with 324 tests, 96% coverage
+- **REST API:** FastAPI with OpenAPI/Swagger UI
+- **Web Dashboard:** HTMX server-side dashboard at `/`
+- **Metrics:** Prometheus-compatible `/metrics` endpoint
 - **Linting:** ruff (lint + format)
 - **Type Checking:** mypy
 - **CI/CD:** GitHub Actions (lint, test matrix, Trivy, CodeQL)
@@ -116,9 +119,14 @@ btwf/
 │   ├── fingerprint.py        # Device fingerprinting
 │   ├── whitelist.py          # Known device management
 │   ├── alert.py              # New device alert system
+│   ├── api.py                # FastAPI REST API + HTMX dashboard
+│   ├── metrics.py            # Prometheus metrics
 │   └── data/
-│       └── .gitkeep
-├── tests/                    # 324 tests, 96% coverage
+│       └── .gitkeep          # IEEE OUI CSV downloaded here
+├── tests/                    # pytest test suite
+│   ├── e2e/                  # Playwright E2E browser tests
+│   │   └── test_dashboard_e2e.py
+│   ├── test_database_integration.py  # TestContainers PostgreSQL tests
 │   ├── test_main.py
 │   ├── test_config.py
 │   ├── test_categorizer.py
@@ -135,7 +143,8 @@ btwf/
 │   └── test_database.py
 ├── .github/
 │   └── workflows/
-│       └── ci.yml            # GitHub Actions CI pipeline
+│       ├── ci.yml            # GitHub Actions CI pipeline
+│       └── oui-update.yml    # Weekly IEEE OUI database refresh
 ├── docs/
 │   └── adr/
 │       └── 001-technology-choice.md
@@ -157,5 +166,120 @@ See [ADR-001](docs/adr/001-technology-choice.md) for the technology choice ratio
 - Scanned devices are never given access to the network or computer
 - The system operates in read-only/passive scanning mode
 - No connections are established with discovered devices
+- See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy
+
+## REST API & Web Dashboard
+
+BtWiFi ships a FastAPI service that provides a live web dashboard and a
+versioned JSON API.
+
+### Starting the API server
+
+```bash
+# Development (auto-reload on code changes)
+uvicorn src.api:app --reload
+
+# Production
+uvicorn src.api:app --host 0.0.0.0 --port 8000
+```
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:8000/` | Live device dashboard (HTMX) |
+| `http://localhost:8000/docs` | Swagger / OpenAPI UI |
+| `http://localhost:8000/redoc` | ReDoc UI |
+| `http://localhost:8000/metrics` | Prometheus metrics |
+
+### API Endpoints (v1)
+
+All JSON endpoints are under `/api/v1/`.
+
+#### Health check
+
+```bash
+curl http://localhost:8000/api/v1/health
+# {"status":"ok","version":"0.1.0"}
+```
+
+#### List devices (paginated)
+
+```bash
+# First page, default page size (20)
+curl http://localhost:8000/api/v1/devices
+
+# Explicit pagination
+curl "http://localhost:8000/api/v1/devices?page=1&page_size=10"
+```
+
+Response:
+```json
+{
+  "devices": [
+    {
+      "mac_address": "AA:BB:CC:DD:EE:FF",
+      "device_type": "wifi",
+      "vendor": "Apple Inc.",
+      "name": null,
+      "reconnect_count": 3,
+      "created_at": "2024-01-01T12:00:00",
+      "updated_at": "2024-01-01T13:00:00"
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "page_size": 10
+}
+```
+
+#### Get a single device
+
+```bash
+curl http://localhost:8000/api/v1/devices/AA:BB:CC:DD:EE:FF
+```
+
+#### Visibility windows for a device
+
+```bash
+curl http://localhost:8000/api/v1/devices/AA:BB:CC:DD:EE:FF/windows
+```
+
+Response:
+```json
+[
+  {
+    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "first_seen": "2024-01-01T12:00:00",
+    "last_seen": "2024-01-01T13:00:00",
+    "signal_strength_dbm": -65,
+    "scan_count": 5
+  }
+]
+```
+
+#### Summary statistics
+
+```bash
+curl http://localhost:8000/api/v1/summary
+# {"total_devices":42,"active_last_hour":7,"device_types":{"wifi":30,"bluetooth":12}}
+```
+
+#### HTMX table fragment (for dashboard auto-refresh)
+
+```bash
+curl "http://localhost:8000/api/v1/devices-table?page=1"
+# Returns an HTML fragment suitable for HTMX injection
+```
+
+#### Prometheus metrics
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+### Rate Limits
+
+The `/api/v1/devices` endpoint is rate-limited to **100 requests per minute**
+per IP address (via slowapi). Exceeding the limit returns HTTP `429 Too Many Requests`.
+
 
 

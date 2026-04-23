@@ -3,6 +3,7 @@
 import pytest
 
 from src.oui_lookup import (
+    _load_oui_csv,
     get_oui_prefix,
     is_randomized_mac,
     lookup_vendor,
@@ -141,3 +142,95 @@ class TestIsRandomizedMac:
     @pytest.mark.timeout(30)
     def test_invalid_mac_returns_false(self) -> None:
         assert is_randomized_mac("invalid") is False
+
+
+class TestLoadOuiCsv:
+    """Tests for the local IEEE OUI CSV loader."""
+
+    @pytest.mark.timeout(30)
+    def test_missing_csv_returns_empty_dict(self, tmp_path, monkeypatch) -> None:
+        """When the OUI CSV file doesn't exist, return an empty dict without error."""
+        import src.oui_lookup as oui_mod
+
+        monkeypatch.setattr(oui_mod, "_OUI_CSV_PATH", tmp_path / "nonexistent.csv")
+        monkeypatch.setattr(oui_mod, "_csv_vendors", None)
+        monkeypatch.setattr(oui_mod, "_CSV_LOAD_ATTEMPTED", False)
+
+        result = _load_oui_csv()
+        assert result == {}
+
+    @pytest.mark.timeout(30)
+    def test_valid_csv_parsed_correctly(self, tmp_path, monkeypatch) -> None:
+        """A valid OUI CSV should be parsed into prefix→vendor mappings."""
+        import src.oui_lookup as oui_mod
+
+        csv_content = (
+            "Registry,Assignment,Organization Name,Organization Address\n"
+            "MA-L,001B63,Apple Inc.,Cupertino CA US\n"
+            "MA-L,00005E,ICANN,Los Angeles CA US\n"
+        )
+        csv_file = tmp_path / "oui.csv"
+        csv_file.write_text(csv_content, encoding="utf-8")
+
+        monkeypatch.setattr(oui_mod, "_OUI_CSV_PATH", csv_file)
+        monkeypatch.setattr(oui_mod, "_csv_vendors", None)
+        monkeypatch.setattr(oui_mod, "_CSV_LOAD_ATTEMPTED", False)
+
+        result = _load_oui_csv()
+        assert result.get("00:1B:63") == "Apple Inc."
+        assert result.get("00:00:5E") == "ICANN"
+
+    @pytest.mark.timeout(30)
+    def test_malformed_csv_returns_empty_dict(self, tmp_path, monkeypatch) -> None:
+        """A file with garbage content should not raise, just return empty."""
+        import src.oui_lookup as oui_mod
+
+        csv_file = tmp_path / "oui.csv"
+        csv_file.write_bytes(b"\x00\xff\xfe garbage bytes \x00")
+
+        monkeypatch.setattr(oui_mod, "_OUI_CSV_PATH", csv_file)
+        monkeypatch.setattr(oui_mod, "_csv_vendors", None)
+        monkeypatch.setattr(oui_mod, "_CSV_LOAD_ATTEMPTED", False)
+
+        # Should not raise
+        result = _load_oui_csv()
+        assert isinstance(result, dict)
+
+    @pytest.mark.timeout(30)
+    def test_csv_vendor_used_in_lookup(self, tmp_path, monkeypatch) -> None:
+        """lookup_vendor should prefer the CSV source when mac-vendor-lookup misses."""
+        import src.oui_lookup as oui_mod
+
+        csv_content = (
+            "Registry,Assignment,Organization Name,Organization Address\n"
+            "MA-L,AABBCC,TestCorp Ltd.,Testville TS US\n"
+        )
+        csv_file = tmp_path / "oui.csv"
+        csv_file.write_text(csv_content, encoding="utf-8")
+
+        monkeypatch.setattr(oui_mod, "_OUI_CSV_PATH", csv_file)
+        monkeypatch.setattr(oui_mod, "_csv_vendors", None)
+        monkeypatch.setattr(oui_mod, "_CSV_LOAD_ATTEMPTED", False)
+        # Force mac-vendor-lookup to miss
+        monkeypatch.setattr(oui_mod, "_mac_lookup", None)
+        monkeypatch.setattr(oui_mod, "_INIT_ATTEMPTED", True)
+
+        vendor = lookup_vendor("AA:BB:CC:00:00:01")
+        assert vendor == "TestCorp Ltd."
+
+    @pytest.mark.timeout(30)
+    def test_cached_after_first_call(self, tmp_path, monkeypatch) -> None:
+        """_load_oui_csv should return the same dict object on repeated calls."""
+        import src.oui_lookup as oui_mod
+
+        csv_content = "Registry,Assignment,Organization Name,Organization Address\n"
+        csv_file = tmp_path / "oui.csv"
+        csv_file.write_text(csv_content, encoding="utf-8")
+
+        monkeypatch.setattr(oui_mod, "_OUI_CSV_PATH", csv_file)
+        monkeypatch.setattr(oui_mod, "_csv_vendors", None)
+        monkeypatch.setattr(oui_mod, "_CSV_LOAD_ATTEMPTED", False)
+
+        first = _load_oui_csv()
+        second = _load_oui_csv()
+        assert first is second  # same dict object — cached

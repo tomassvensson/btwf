@@ -1,13 +1,71 @@
-"""MAC address to vendor/brand name translation using IEEE OUI database."""
+"""MAC address to vendor/brand name translation using IEEE OUI database.
 
+The lookup strategy (highest priority first):
+
+1. ``mac-vendor-lookup`` library with its own cached database (best coverage).
+2. Local IEEE OUI CSV at ``src/data/oui.csv`` downloaded by
+   ``scripts/update_oui_db.py`` (fast, offline-capable, auto-updated weekly
+   via the ``oui-update`` GitHub Actions workflow).
+3. Built-in static fallback dict ``_BUILTIN_OUI`` (limited but always present).
+"""
+
+from __future__ import annotations
+
+import csv
 import logging
 import re
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Path to the locally cached IEEE OUI CSV (populated by scripts/update_oui_db.py)
+_OUI_CSV_PATH = Path(__file__).parent / "data" / "oui.csv"
 
 # Try to use mac_vendor_lookup if available, otherwise fall back to built-in
 _mac_lookup = None
 _INIT_ATTEMPTED = False
+# Vendors loaded from the local OUI CSV (populated lazily on first use)
+_csv_vendors: dict[str, str] | None = None
+_CSV_LOAD_ATTEMPTED = False
+
+
+def _load_oui_csv() -> dict[str, str]:
+    """Load vendor names from the locally cached IEEE OUI CSV.
+
+    The CSV has this header::
+
+        Registry,Assignment,Organization Name,Organization Address
+
+    The ``Assignment`` column contains the 6-hex-digit OUI (no colons).
+
+    Returns:
+        Dict mapping ``XX:XX:XX`` (uppercase, colon-separated) to vendor name.
+        Empty dict if the file does not exist or cannot be parsed.
+    """
+    global _csv_vendors, _CSV_LOAD_ATTEMPTED
+    if _CSV_LOAD_ATTEMPTED:
+        # _csv_vendors is always a dict after the first call (may be empty)
+        return _csv_vendors if _csv_vendors is not None else {}
+    _CSV_LOAD_ATTEMPTED = True
+    _csv_vendors = {}
+
+    if not _OUI_CSV_PATH.exists():
+        logger.debug("Local OUI CSV not found at %s — using built-in fallback.", _OUI_CSV_PATH)
+        return _csv_vendors
+    try:
+        with _OUI_CSV_PATH.open(newline="", encoding="utf-8", errors="replace") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                assignment = row.get("Assignment", "").strip().upper()
+                name = row.get("Organization Name", "").strip()
+                if len(assignment) == 6 and name:
+                    oui_key = f"{assignment[0:2]}:{assignment[2:4]}:{assignment[4:6]}"
+                    _csv_vendors[oui_key] = name
+        logger.info("Loaded %d OUI entries from %s.", len(_csv_vendors), _OUI_CSV_PATH)
+    except Exception:
+        logger.exception("Failed to load local OUI CSV.")
+
+    return _csv_vendors
 
 
 def _init_mac_lookup() -> None:
@@ -656,8 +714,11 @@ def get_oui_prefix(mac_address: str) -> str:
 def lookup_vendor(mac_address: str) -> str | None:
     """Look up the vendor/manufacturer for a MAC address.
 
-    Tries the mac-vendor-lookup library first, then falls back to
-    the built-in OUI table.
+    Tries (in order):
+    1. ``mac-vendor-lookup`` library with its cached database.
+    2. Local IEEE OUI CSV (``src/data/oui.csv``) downloaded by the weekly
+       ``oui-update`` workflow.
+    3. Built-in static OUI table (limited but always available).
 
     Args:
         mac_address: MAC address in any common format.
@@ -671,7 +732,7 @@ def lookup_vendor(mac_address: str) -> str | None:
         logger.warning("Cannot lookup vendor for invalid MAC: %s", mac_address)
         return None
 
-    # Try the full database first
+    # 1 — Try the full mac-vendor-lookup library
     _init_mac_lookup()
     if _mac_lookup is not None:
         try:
@@ -679,10 +740,15 @@ def lookup_vendor(mac_address: str) -> str | None:
             if vendor:
                 return vendor
         except Exception:
-            logger.debug("mac-vendor-lookup failed for %s, trying builtin.", normalized)
+            logger.debug("mac-vendor-lookup failed for %s, trying CSV.", normalized)
 
-    # Fall back to built-in OUI table
+    # 2 — Try the local IEEE OUI CSV
     prefix = get_oui_prefix(normalized)
+    csv_vendor = _load_oui_csv().get(prefix)
+    if csv_vendor:
+        return csv_vendor
+
+    # 3 — Built-in static table
     vendor = _BUILTIN_OUI.get(prefix)
     if vendor:
         return vendor
