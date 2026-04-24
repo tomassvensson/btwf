@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ device.device_name or device.mac_address }} — BtWiFi</title>
+    <link rel="icon" href="data:,">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <style>
         :root {
@@ -72,7 +73,8 @@
         th { background: var(--primary); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
         .signal-good { color: var(--success); }
         .signal-fair { color: var(--warning); }
-        .signal-weak { color: var(--accent); }
+        .signal-weak { color: #ff6080; }
+        [data-theme="light"] .signal-weak { color: #c62828; }
         .pagination { display: flex; gap: 0.4rem; justify-content: center; padding: 0.8rem 0; }
         .btn {
             padding: 0.4rem 0.8rem; border: 1px solid var(--border); border-radius: 4px;

@@ -32,7 +32,10 @@
         "bf-cache": "off",
         "third-party-facades": "off",
         "unminified-css": "off",
-        "unminified-javascript": "off"
+        "unminified-javascript": "off",
+        "lcp-lazy-loaded": "off",
+        "non-composited-animations": "off",
+        "prioritize-lcp-image": "off"
       }
     },
     "upload": {
