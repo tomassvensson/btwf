@@ -70,9 +70,7 @@ class PortScanConfig:
     """
 
     enabled: bool = False
-    ports: list[int] = field(
-        default_factory=lambda: [21, 22, 23, 25, 53, 80, 443, 445, 3389, 8080, 8443]
-    )
+    ports: list[int] = field(default_factory=lambda: [21, 22, 23, 25, 53, 80, 443, 445, 3389, 8080, 8443])
     timeout_seconds: float = 0.5
     max_workers: int = 20
 

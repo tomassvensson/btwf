@@ -525,6 +525,67 @@ def device_detail_page(
     )
 
 
+@app.get("/devices/{mac_address}/timeline", response_class=HTMLResponse)
+def device_timeline_page(
+    request: Request,
+    mac_address: str,
+    gap_minutes: int = Query(60, ge=1, le=10080, description="Gap threshold in minutes."),
+    session: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Render the device timeline page showing visibility gaps and windows visually.
+
+    Args:
+        request: FastAPI request.
+        mac_address: Device MAC address.
+        gap_minutes: Minimum gap (minutes) between windows to report as absent.
+        session: Database session.
+
+    Returns:
+        Rendered HTML timeline page.
+    """
+    device = session.query(Device).filter_by(mac_address=mac_address).first()
+    if device is None:
+        return HTMLResponse(content="<h1>Device not found</h1>", status_code=404)
+
+    windows: list[VisibilityWindow] = (
+        session.query(VisibilityWindow)
+        .filter_by(mac_address=mac_address)
+        .order_by(VisibilityWindow.first_seen.asc())
+        .all()
+    )
+
+    gap_threshold_seconds = gap_minutes * 60
+    entries: list[dict[str, Any]] = []
+    for i, w in enumerate(windows):
+        entries.append({"type": "window", "window": w})
+        if i + 1 < len(windows):
+            next_w = windows[i + 1]
+            gap_seconds = (next_w.first_seen - w.last_seen).total_seconds()
+            if gap_seconds >= gap_threshold_seconds:
+                entries.append(
+                    {
+                        "type": "gap",
+                        "gap_start": w.last_seen,
+                        "gap_end": next_w.first_seen,
+                        "gap_seconds": int(gap_seconds),
+                    }
+                )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="device_timeline.html",
+        context={
+            "device": device,
+            "entries": entries,
+            "gap_minutes": gap_minutes,
+            "total_windows": len(windows),
+            "first_seen": windows[0].first_seen if windows else None,
+            "last_seen": windows[-1].last_seen if windows else None,
+            "now": datetime.now(timezone.utc),
+        },
+    )
+
+
 @v1.get("/devices/{mac_address}/windows-table", response_class=HTMLResponse)
 def windows_table_fragment(
     request: Request,
@@ -737,6 +798,138 @@ def export_windows_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=windows.csv"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Timeline endpoint
+# ---------------------------------------------------------------------------
+@v1.get("/devices/{mac_address}/timeline")
+@limiter.limit("100/minute")
+def get_device_timeline(
+    request: Request,
+    mac_address: str,
+    gap_minutes: int = Query(
+        60,
+        ge=1,
+        le=10080,
+        description="Minimum gap (minutes) between windows to be reported as a gap period.",
+    ),
+    session: Session = Depends(get_db),
+    _user: str | None = Depends(require_auth),
+) -> dict[str, Any]:
+    """Return all visibility windows for a device in chronological order.
+
+    Consecutive windows are compared; if the gap between ``last_seen`` of one
+    window and ``first_seen`` of the next exceeds *gap_minutes*, a synthetic
+    ``gap`` entry is inserted in the ``entries`` list so callers can render
+    absent periods distinctly.
+
+    Args:
+        request: FastAPI request (required by rate limiter).
+        mac_address: Device MAC address.
+        gap_minutes: Gap threshold in minutes.
+        session: Database session.
+
+    Returns:
+        ``{"mac_address": …, "first_seen": …, "last_seen": …, "total_windows": …,
+           "entries": [{type, …window_fields | gap_fields}]}``
+    """
+    device = session.query(Device).filter_by(mac_address=mac_address).first()
+    if device is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    windows: list[VisibilityWindow] = (
+        session.query(VisibilityWindow)
+        .filter_by(mac_address=mac_address)
+        .order_by(VisibilityWindow.first_seen.asc())
+        .all()
+    )
+
+    entries: list[dict[str, Any]] = []
+    gap_threshold_seconds = gap_minutes * 60
+
+    for i, w in enumerate(windows):
+        entries.append({"type": "window", **_serialize_window(w)})
+
+        if i + 1 < len(windows):
+            next_w = windows[i + 1]
+            gap_seconds = (next_w.first_seen - w.last_seen).total_seconds()
+            if gap_seconds >= gap_threshold_seconds:
+                entries.append(
+                    {
+                        "type": "gap",
+                        "gap_start": w.last_seen.isoformat() if w.last_seen else None,
+                        "gap_end": next_w.first_seen.isoformat() if next_w.first_seen else None,
+                        "gap_seconds": int(gap_seconds),
+                    }
+                )
+
+    first_seen = windows[0].first_seen.isoformat() if windows else None
+    last_seen = windows[-1].last_seen.isoformat() if windows else None
+
+    return {
+        "mac_address": mac_address,
+        "device_name": device.device_name,
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "total_windows": len(windows),
+        "gap_threshold_minutes": gap_minutes,
+        "entries": entries,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Randomized-MAC merge candidates endpoint
+# ---------------------------------------------------------------------------
+@v1.get("/devices/{mac_address}/merge-candidates")
+@limiter.limit("30/minute")
+def get_merge_candidates(
+    request: Request,
+    mac_address: str,
+    session: Session = Depends(get_db),
+    _user: str | None = Depends(require_auth),
+) -> dict[str, Any]:
+    """Find canonical devices that *mac_address* (a randomized MAC) may belong to.
+
+    Returns an empty candidate list if the MAC is not randomized or if no
+    matches are found.  See :mod:`src.mac_merge` for full caveats.
+
+    Args:
+        request: FastAPI request (required by rate limiter).
+        mac_address: MAC address to inspect.
+        session: Database session.
+
+    Returns:
+        ``{"mac_address": …, "is_randomized": …, "candidates": [{…}]}``
+    """
+    from src.mac_merge import MergeCandidate, find_merge_candidates
+    from src.oui_lookup import is_randomized_mac
+
+    device = session.query(Device).filter_by(mac_address=mac_address).first()
+    if device is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    randomized = is_randomized_mac(mac_address)
+    raw: list[MergeCandidate] = find_merge_candidates(session, device) if randomized else []
+
+    def _serialize_candidate(c: MergeCandidate) -> dict[str, Any]:
+        return {
+            "source_mac": c.source_mac,
+            "target_mac": c.target_mac,
+            "confidence": c.confidence,
+            "reasons": c.reasons,
+        }
+
+    return {
+        "mac_address": mac_address,
+        "is_randomized": randomized,
+        "already_merged_into": device.merged_into,
+        "candidates": [_serialize_candidate(c) for c in raw],
+    }
 
 
 # Register all v1 routes with the app

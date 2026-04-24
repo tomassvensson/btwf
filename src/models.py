@@ -40,6 +40,11 @@ class Device(Base):
     open_ports: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Subnet/VLAN label from ping_sweep config, e.g. "office", "IoT".
     network_segment: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # MAC address of the canonical device this record was merged into.
+    # Set when a randomized MAC is identified as belonging to a known device.
+    # The record is kept for audit purposes; the canonical device holds the
+    # aggregated visibility history.
+    merged_into: Mapped[str | None] = mapped_column(String(17), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False

@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.pool import StaticPool
 
 from src.api import app, set_engine
-from src.models import Base, Device, VisibilityWindow
-from tests.conftest import _T0, _T1
+from src.models import Device
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +80,6 @@ class TestDevicesEndpoint:
 
     def test_devices_pagination(self, client, in_memory_engine, db_session):
         """Verify limit/offset query parameters work."""
-        from sqlalchemy.orm import Session
 
         # Add extra devices
         for i in range(5):

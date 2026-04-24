@@ -31,10 +31,10 @@ from src.device_tracker import (
     track_wifi_scan,
     update_visibility,
 )
+from src.home_assistant import HaDevice, build_ha_lookup, enrich_from_ha, fetch_ha_devices
 from src.ipv6_scanner import Ipv6Neighbor, scan_ipv6_neighbors
 from src.mdns_scanner import MdnsDevice
 from src.models import Device, VisibilityWindow
-from src.home_assistant import HaDevice, build_ha_lookup, enrich_from_ha, fetch_ha_devices
 from src.network_discovery import NetworkDevice, ping_sweep, scan_arp_table
 from src.oui_lookup import is_randomized_mac
 from src.port_scanner import decode_open_ports, encode_open_ports, scan_host_ports
@@ -547,8 +547,15 @@ def _store_scan_results(
     all_network_devices = data.arp_devices + data.ping_sweep_devices
     for arp_dev in all_network_devices:
         _upsert_network_device(
-            session, arp_dev, whitelist, alert_mgr, data.netbios_names, gap,
-            config=config, ha_lookup=ha_lookup or {}, rescan_ports=rescan_ports,
+            session,
+            arp_dev,
+            whitelist,
+            alert_mgr,
+            data.netbios_names,
+            gap,
+            config=config,
+            ha_lookup=ha_lookup or {},
+            rescan_ports=rescan_ports,
         )
 
     for mdns_dev in data.mdns_devices:
@@ -659,15 +666,26 @@ def _upsert_network_device(
         device = existing
 
     # Port scanning: run only if enabled and (no cached data or rescan requested)
-    if config is not None and config.port_scan.enabled and arp_dev.ip_address:
-        if rescan_ports or not device.open_ports:
-            open_ports = scan_host_ports(
-                arp_dev.ip_address,
-                ports=config.port_scan.ports,
-                timeout=config.port_scan.timeout_seconds,
-                max_workers=config.port_scan.max_workers,
-            )
-            device.open_ports = encode_open_ports(open_ports) if open_ports else ""
+    if (
+        config is not None
+        and config.port_scan.enabled
+        and arp_dev.ip_address
+        and (rescan_ports or not device.open_ports)
+    ):
+        logger.info("Port scanning %s (%s)…", arp_dev.ip_address, arp_dev.mac_address)
+        open_ports = scan_host_ports(
+            arp_dev.ip_address,
+            ports=config.port_scan.ports,
+            timeout=config.port_scan.timeout_seconds,
+            max_workers=config.port_scan.max_workers,
+        )
+        device.open_ports = encode_open_ports(open_ports) if open_ports else ""
+        logger.info(
+            "Port scan %s → %d open port(s): %s",
+            arp_dev.ip_address,
+            len(open_ports),
+            device.open_ports or "(none)",
+        )
 
     update_visibility(
         session,
@@ -975,7 +993,19 @@ def _build_device_row(
     segment = device.network_segment or ""
     open_ports = _format_open_ports(device.open_ports)
 
-    return [type_label, category, name, vendor, device.mac_address, signal_str, segment, open_ports, first_seen, last_seen, details]
+    return [
+        type_label,
+        category,
+        name,
+        vendor,
+        device.mac_address,
+        signal_str,
+        segment,
+        open_ports,
+        first_seen,
+        last_seen,
+        details,
+    ]
 
 
 def _format_open_ports(encoded: str | None) -> str:
@@ -1083,6 +1113,11 @@ def main() -> None:
             config.scan.continuous = True
         elif _scan_args.once:
             config.scan.continuous = False
+
+        # --rescan-ports implies port scanning is enabled for this run
+        if _scan_args.rescan_ports and not config.port_scan.enabled:
+            logger.info("--rescan-ports given: enabling port scan for this run.")
+            config.port_scan.enabled = True
 
         # Start API server in background thread if enabled
         if config.api.enabled:

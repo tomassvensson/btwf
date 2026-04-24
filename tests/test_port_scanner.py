@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import socket
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.port_scanner import (
     DEFAULT_PORTS,

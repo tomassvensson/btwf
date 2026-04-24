@@ -84,7 +84,17 @@ WELL_KNOWN_PORTS: dict[int, str] = {
 
 # Default set of ports to scan when none are specified in config.
 DEFAULT_PORTS: list[int] = [
-    21, 22, 23, 25, 53, 80, 443, 445, 3389, 8080, 8443,
+    21,
+    22,
+    23,
+    25,
+    53,
+    80,
+    443,
+    445,
+    3389,
+    8080,
+    8443,
 ]
 
 

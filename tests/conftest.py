@@ -7,12 +7,16 @@ Provides deterministic mock scanner data so tests run without real hardware
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Generator
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from sqlalchemy.orm import Session
 
 from src.bluetooth_scanner import BluetoothDevice
 from src.models import Base, Device, VisibilityWindow

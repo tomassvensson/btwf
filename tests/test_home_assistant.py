@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.home_assistant import (
     HaDevice,
     _normalize_ha_mac,
