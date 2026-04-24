@@ -19,6 +19,7 @@ from src.main import (
     _handle_shutdown,
     _import_and_scan_mdns,
     _import_and_scan_ssdp,
+    _merge_bluetooth_devices,
     _resolve_netbios,
     _shorten_vendor_name,
     _upsert_mdns_device,
@@ -342,30 +343,75 @@ class TestRunScan:
         config.scan.ipv6_enabled = False
         run_scan(config)
 
-    @patch("src.main.scan_bluetooth_devices")
+    @patch("src.main.scan_ble_devices")
     @patch("src.main.scan_wifi_networks")
     @patch("src.main.platform.system", return_value="Linux")
     @pytest.mark.timeout(30)
-    def test_skips_windows_only_scanners_on_linux(
+    def test_runs_wifi_and_ble_scanners_on_linux(
         self,
         _mock_platform,
         mock_wifi_scan,
-        mock_bt_scan,
+        mock_ble_scan,
     ) -> None:
-        """Linux runs should skip the Windows-only WiFi and Bluetooth scanners."""
+        """Linux runs should execute WiFi and BLE scanners when enabled."""
+        from src.bluetooth_scanner import BluetoothDevice
+        from src.wifi_scanner import WifiNetwork
+
         config = AppConfig()
         config.scan.arp_enabled = False
+        config.scan.bluetooth_enabled = False
         config.scan.mdns_enabled = False
         config.scan.ssdp_enabled = False
         config.scan.netbios_enabled = False
         config.scan.ipv6_enabled = False
 
+        mock_wifi_scan.return_value = [
+            WifiNetwork(
+                ssid="LinuxWiFi",
+                bssid="AA:BB:CC:DD:EE:FF",
+                network_type="Infrastructure",
+                authentication="WPA2",
+                encryption="WPA2",
+                signal_percent=70,
+                signal_dbm=-65.0,
+                radio_type="",
+                channel=11,
+            )
+        ]
+        mock_ble_scan.return_value = [
+            BluetoothDevice(mac_address="11:22:33:44:55:66", device_name="Beacon", device_class="BLE")
+        ]
+
         data = _execute_all_scanners(config)
 
-        assert data.wifi_networks == []
-        assert data.bt_devices == []
-        mock_wifi_scan.assert_not_called()
-        mock_bt_scan.assert_not_called()
+        assert len(data.wifi_networks) == 1
+        assert len(data.bt_devices) == 1
+        mock_wifi_scan.assert_called_once()
+        mock_ble_scan.assert_called_once()
+
+
+class TestMergeBluetoothDevices:
+    """Tests for deduplicating merged Bluetooth device lists."""
+
+    @pytest.mark.timeout(30)
+    def test_merges_duplicate_mac(self) -> None:
+        from src.bluetooth_scanner import BluetoothDevice
+
+        existing = [BluetoothDevice(mac_address="AA:BB:CC:DD:EE:FF", device_name=None, is_paired=False)]
+        additional = [
+            BluetoothDevice(
+                mac_address="AA:BB:CC:DD:EE:FF",
+                device_name="Beacon",
+                is_paired=True,
+                device_class="BLE",
+            )
+        ]
+
+        merged = _merge_bluetooth_devices(existing, additional)
+
+        assert len(merged) == 1
+        assert merged[0].device_name == "Beacon"
+        assert merged[0].is_paired is True
 
 
 class TestHandleShutdown:
@@ -848,6 +894,7 @@ class TestRunScanWithAllScanners:
         mock_netbios.return_value = {"192.168.1.100": "MY-PC"}
 
         config = AppConfig()
+        config.scan.ble_enabled = False
         config.scan.mdns_enabled = True
         config.scan.ssdp_enabled = True
         config.scan.netbios_enabled = True

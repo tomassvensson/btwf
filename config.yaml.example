@@ -9,9 +9,9 @@ scan:
   # Seconds of absence before starting a new visibility window
   gap_seconds: 300
   # Enable/disable individual scan types
-  wifi_enabled: true
-  bluetooth_enabled: true
-  ble_enabled: true
+  wifi_enabled: true        # Windows: netsh, Linux: nmcli/iw
+  bluetooth_enabled: true   # Classic Bluetooth (Windows PowerShell backend)
+  ble_enabled: true         # BLE scanning on Linux via bleak/BlueZ
   arp_enabled: true
   mdns_enabled: true
   ssdp_enabled: true

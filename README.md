@@ -8,8 +8,8 @@ BtWiFi uses multiple discovery protocols to scan for nearby wireless and network
 
 ## Features
 
-- **WiFi Network Scanning** — Discovers nearby WiFi networks and access points
-- **Bluetooth Device Scanning** — Discovers nearby Bluetooth devices
+- **WiFi Network Scanning** — Discovers nearby WiFi networks and access points on Windows and Linux
+- **Bluetooth Device Scanning** — Discovers nearby classic Bluetooth devices on Windows and BLE devices on Linux
 - **mDNS/Bonjour Discovery** — Finds devices advertising mDNS services (printers, IoT, Apple devices)
 - **SSDP/UPnP Discovery** — Discovers UPnP devices on the network
 - **NetBIOS Name Resolution** — Resolves Windows/SMB device names
@@ -34,8 +34,9 @@ BtWiFi uses multiple discovery protocols to scan for nearby wireless and network
 
 - **Language:** Python 3.10+
 - **Database:** SQLite (default) or PostgreSQL via SQLAlchemy + Alembic
-- **WiFi Scanning:** Windows Native WiFi API (`netsh`)
+- **WiFi Scanning:** Windows Native WiFi API (`netsh`) / Linux `nmcli` or `iw`
 - **Bluetooth Scanning:** Windows Bluetooth API via PowerShell
+- **BLE Scanning:** Linux `bleak` + BlueZ
 - **ARP Discovery:** `ip neigh` (Linux) / `arp -a` (Windows)
 - **mDNS Discovery:** zeroconf library
 - **SNMP Scanning:** pysnmp-lextudio (SNMPv2c)
@@ -72,13 +73,14 @@ cp config.yaml.example config.yaml
 python -m src.main
 ```
 
-> **WSL / Linux note:** WiFi and Bluetooth scanners use Windows-only APIs
-> (`netsh`, PowerShell). On Linux and WSL they are skipped automatically.
-> You can still set `wifi_enabled`, `bluetooth_enabled`, and `ble_enabled`
-> to `false` in `config.yaml` to suppress those capability checks entirely.
-> The ARP, mDNS, SSDP, NetBIOS, and IPv6 scanners work cross-platform.
-> Under WSL2, enable `ping_sweep` with your LAN subnet to discover devices
-> beyond the virtual NAT gateway.
+> **Linux / WSL note:** Linux WiFi scanning uses `nmcli` first and falls back
+> to `iw` when available. Linux BLE scanning uses `bleak` with BlueZ/DBus.
+> On systems without WiFi or Bluetooth hardware access, set `wifi_enabled`
+> and/or `ble_enabled` to `false` in `config.yaml` to suppress those scans.
+> Under WSL, direct WiFi and Bluetooth hardware access is usually unavailable,
+> so those scanners are skipped automatically. The ARP, mDNS, SSDP, NetBIOS,
+> and IPv6 scanners work cross-platform. Under WSL2, enable `ping_sweep`
+> with your LAN subnet to discover devices beyond the virtual NAT gateway.
 
 ## Configuration
 
@@ -88,6 +90,7 @@ Copy `config.yaml.example` to `config.yaml` and customize:
 scan:
   wifi_enabled: true
   bluetooth_enabled: true
+  ble_enabled: true
   arp_enabled: true
   mdns_enabled: true
   ssdp_enabled: true
@@ -116,8 +119,8 @@ btwf/
 │   ├── models.py             # SQLAlchemy database models
 │   ├── database.py           # Database session management
 │   ├── config.py             # YAML configuration loader
-│   ├── wifi_scanner.py       # WiFi scanning (netsh)
-│   ├── bluetooth_scanner.py  # Bluetooth scanning (PowerShell)
+│   ├── wifi_scanner.py       # WiFi scanning (Windows netsh, Linux nmcli/iw)
+│   ├── bluetooth_scanner.py  # Windows Bluetooth + Linux BLE scanning
 │   ├── network_discovery.py  # ARP table scanning
 │   ├── mdns_scanner.py       # mDNS/Bonjour service discovery
 │   ├── ssdp_scanner.py       # SSDP/UPnP device discovery

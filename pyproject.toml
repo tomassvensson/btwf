@@ -21,6 +21,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "python-jose[cryptography]>=3.3.0",
     "bcrypt>=4.0",
+    "bleak>=0.22.3",
     "pysnmp-lextudio>=6.2",
     "python-multipart>=0.0.9",
 ]

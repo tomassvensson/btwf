@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session as DbSession
 from tabulate import tabulate
 
 from src.alert import AlertManager
-from src.bluetooth_scanner import BluetoothDevice, scan_bluetooth_devices
+from src.bluetooth_scanner import BluetoothDevice, scan_ble_devices, scan_bluetooth_devices
 from src.categorizer import categorize_device, get_category_label
 from src.config import AppConfig, load_config
 from src.database import get_session, init_database
@@ -357,19 +357,16 @@ def _execute_all_scanners(config: AppConfig) -> _ScanData:
         _ScanData with results from each scanner.
     """
     data = _ScanData()
-    windows_runtime = platform.system().lower() == "windows"
 
     if config.scan.wifi_enabled:
-        if windows_runtime:
-            data.wifi_networks = _run_scanner("WiFi", scan_wifi_networks)
-        else:
-            logger.info("Skipping WiFi scan: Windows netsh scanning is unavailable on %s", platform.system())
+        data.wifi_networks = _run_scanner("WiFi", scan_wifi_networks)
 
     if config.scan.bluetooth_enabled:
-        if windows_runtime:
-            data.bt_devices = _run_scanner("Bluetooth", scan_bluetooth_devices)
-        else:
-            logger.info("Skipping Bluetooth scan: Windows PowerShell scanning is unavailable on %s", platform.system())
+        data.bt_devices = _run_scanner("Bluetooth", scan_bluetooth_devices)
+
+    if config.scan.ble_enabled and platform.system().lower() == "linux":
+        ble_devices = _run_scanner("BLE", scan_ble_devices)
+        data.bt_devices = _merge_bluetooth_devices(data.bt_devices, ble_devices)
 
     if config.scan.arp_enabled:
         data.arp_devices = _run_scanner("ARP", scan_arp_table)
@@ -420,6 +417,35 @@ def _run_scanner(name: str, scanner_fn: Callable[[], list[_T]]) -> list[_T]:
     except Exception as exc:
         logger.error("%s scan failed: %s", name, exc)
         return []
+
+
+def _merge_bluetooth_devices(
+    existing_devices: list[BluetoothDevice],
+    additional_devices: list[BluetoothDevice],
+) -> list[BluetoothDevice]:
+    """Merge Bluetooth device lists without double-counting the same MAC."""
+    merged_devices: dict[str, BluetoothDevice] = {
+        device.mac_address: device for device in existing_devices if device.mac_address
+    }
+    ordered_devices = [device for device in existing_devices if device.mac_address]
+
+    for device in additional_devices:
+        if not device.mac_address:
+            continue
+        existing = merged_devices.get(device.mac_address)
+        if existing is None:
+            merged_devices[device.mac_address] = device
+            ordered_devices.append(device)
+            continue
+        if not existing.device_name and device.device_name:
+            existing.device_name = device.device_name
+        if not existing.vendor and device.vendor:
+            existing.vendor = device.vendor
+        existing.is_connected = existing.is_connected or device.is_connected
+        existing.is_paired = existing.is_paired or device.is_paired
+        existing.device_class = existing.device_class or device.device_class
+
+    return ordered_devices
 
 
 def _import_and_scan_mdns() -> list[MdnsDevice]:

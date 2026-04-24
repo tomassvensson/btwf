@@ -4,7 +4,10 @@ import pytest
 
 from src.wifi_scanner import (
     WifiNetwork,
+    _parse_iw_output,
+    _parse_nmcli_output,
     _parse_netsh_output,
+    signal_dbm_to_percent,
     signal_percent_to_dbm,
 )
 
@@ -31,6 +34,22 @@ class TestSignalPercentToDbm:
     @pytest.mark.timeout(30)
     def test_over_hundred_clamped(self) -> None:
         assert signal_percent_to_dbm(150) == -50.0
+
+
+class TestSignalDbmToPercent:
+    """Tests for dBm to signal strength conversion."""
+
+    @pytest.mark.timeout(30)
+    def test_zero_floor(self) -> None:
+        assert signal_dbm_to_percent(-120.0) == 0
+
+    @pytest.mark.timeout(30)
+    def test_midpoint(self) -> None:
+        assert signal_dbm_to_percent(-75.0) == 50
+
+    @pytest.mark.timeout(30)
+    def test_hundred_ceiling(self) -> None:
+        assert signal_dbm_to_percent(-20.0) == 100
 
 
 class TestParseNetshOutput:
@@ -177,3 +196,65 @@ class TestWifiNetworkDataclass:
             channel=6,
         )
         assert network.vendor is not None
+
+
+class TestParseNmcliOutput:
+    """Tests for Linux nmcli WiFi parsing."""
+
+    SAMPLE_OUTPUT = """
+SSID:MyHomeNetwork
+BSSID:AA:BB:CC:DD:EE:FF
+MODE:Infra
+CHAN:36
+SIGNAL:85
+SECURITY:WPA2
+
+SSID:
+BSSID:00:14:6C:DE:AD:01
+MODE:Infra
+CHAN:1
+SIGNAL:20
+SECURITY:
+"""
+
+    @pytest.mark.timeout(30)
+    def test_parses_nmcli_blocks(self) -> None:
+        networks = _parse_nmcli_output(self.SAMPLE_OUTPUT)
+        assert len(networks) == 2
+        assert networks[0].ssid == "MyHomeNetwork"
+        assert networks[0].channel == 36
+        assert networks[1].ssid == "<Hidden>"
+        assert networks[1].authentication == "Open"
+        assert networks[1].encryption == "None"
+
+
+class TestParseIwOutput:
+    """Tests for Linux iw WiFi parsing."""
+
+    SAMPLE_OUTPUT = """
+BSS aa:bb:cc:dd:ee:ff(on wlan0)
+	freq: 5180
+	signal: -42.00 dBm
+	SSID: OfficeWiFi
+	DS Parameter set: channel 36
+	RSN:
+		Version: 1
+
+BSS 00:14:6c:de:ad:01(on wlan0)
+	freq: 2412
+	signal: -70.00 dBm
+	SSID:
+	capability: ESS Privacy ShortSlotTime (0x0431)
+"""
+
+    @pytest.mark.timeout(30)
+    def test_parses_iw_blocks(self) -> None:
+        networks = _parse_iw_output(self.SAMPLE_OUTPUT)
+        assert len(networks) == 2
+        assert networks[0].ssid == "OfficeWiFi"
+        assert networks[0].channel == 36
+        assert networks[0].signal_dbm == pytest.approx(-42.0)
+        assert networks[0].authentication == "WPA2"
+        assert networks[1].ssid == "<Hidden>"
+        assert networks[1].channel == 1
+        assert networks[1].authentication == "WEP"

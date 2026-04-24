@@ -1,18 +1,23 @@
-"""Bluetooth device scanner for Windows.
+"""Bluetooth and BLE device scanner.
 
-Uses PowerShell to query Windows Bluetooth APIs for nearby devices.
-Falls back to WMI queries if the primary method fails.
+Classic Bluetooth scanning uses Windows PowerShell APIs. Linux BLE scanning
+uses bleak when `ble_enabled` is set in the application config.
 
 Security: This is purely passive scanning — no pairing or connections
 are established with discovered devices.
 """
 
+import asyncio
 import json
 import logging
+import os
+import platform
 import re
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from src.oui_lookup import is_randomized_mac, lookup_vendor, normalize_mac
 
@@ -103,14 +108,31 @@ $devices | ConvertTo-Json -Depth 3
 
 
 def scan_bluetooth_devices() -> list[BluetoothDevice]:
-    """Scan for nearby/known Bluetooth devices using Windows APIs.
+    """Scan for nearby/known classic Bluetooth devices on the current platform.
 
     Returns:
         List of discovered BluetoothDevice objects.
 
     Raises:
-        RuntimeError: If the scan fails completely.
+        RuntimeError: If the Windows scan fails completely.
     """
+    system_name = platform.system().lower()
+    if system_name == "windows":
+        return _scan_windows_bluetooth_devices()
+
+    if system_name == "linux":
+        if _is_wsl():
+            logger.info("Skipping classic Bluetooth scan: direct Bluetooth access is not typically available under WSL")
+            return []
+        logger.info("Skipping classic Bluetooth scan on Linux; use ble_enabled for BLE discovery")
+        return []
+
+    logger.info("Skipping Bluetooth scan: unsupported platform %s", platform.system())
+    return []
+
+
+def _scan_windows_bluetooth_devices() -> list[BluetoothDevice]:
+    """Scan for nearby/known Bluetooth devices using Windows APIs."""
     logger.info("Starting Bluetooth device scan...")
 
     try:
@@ -133,6 +155,111 @@ def scan_bluetooth_devices() -> list[BluetoothDevice]:
         logger.warning("Bluetooth scan had warnings: %s", stderr)
 
     return _parse_bt_output(result.stdout)
+
+
+def scan_ble_devices(timeout_seconds: float = 10.0) -> list[BluetoothDevice]:
+    """Scan for BLE devices on Linux using bleak.
+
+    Returns:
+        List of discovered BluetoothDevice objects.
+    """
+    if platform.system().lower() != "linux":
+        return []
+    if _is_wsl():
+        logger.info("Skipping BLE scan: direct Bluetooth access is not typically available under WSL")
+        return []
+
+    logger.info("Starting BLE device scan...")
+    try:
+        discovered_devices = _run_ble_discovery(timeout_seconds)
+    except ImportError:
+        logger.info("Skipping BLE scan: bleak is not installed")
+        return []
+    except Exception as exc:
+        logger.info("Skipping BLE scan: %s", exc)
+        return []
+
+    devices = _parse_ble_discovery_results(discovered_devices)
+    logger.info("BLE scan complete: found %d devices.", len(devices))
+    return devices
+
+
+async def _discover_ble_devices(timeout_seconds: float) -> list[Any]:
+    """Run a bleak discovery round and return the raw device list."""
+    from bleak import BleakScanner  # type: ignore[import-untyped]
+
+    return await BleakScanner.discover(timeout=timeout_seconds)
+
+
+def _run_ble_discovery(timeout_seconds: float) -> list[Any]:
+    """Run BLE discovery even when the current thread already has an event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_discover_ble_devices(timeout_seconds))
+
+    result: list[Any] = []
+    error: list[BaseException] = []
+
+    def _runner() -> None:
+        try:
+            result.extend(asyncio.run(_discover_ble_devices(timeout_seconds)))
+        except BaseException as exc:  # pragma: no cover - bubbled immediately below
+            error.append(exc)
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    worker.join()
+
+    if error:
+        raise error[0]
+
+    return result
+
+
+def _parse_ble_discovery_results(discovered_devices: object) -> list[BluetoothDevice]:
+    """Convert bleak discovery output into BluetoothDevice objects."""
+    parsed_items: list[tuple[object, object | None]] = []
+    if isinstance(discovered_devices, dict):
+        for value in discovered_devices.values():
+            if isinstance(value, tuple) and value:
+                ble_device = value[0]
+                advertisement = value[1] if len(value) > 1 else None
+                parsed_items.append((ble_device, advertisement))
+            else:
+                parsed_items.append((value, None))
+    elif isinstance(discovered_devices, list):
+        parsed_items = [(device, None) for device in discovered_devices]
+    else:
+        return []
+
+    devices: list[BluetoothDevice] = []
+    seen_macs: set[str] = set()
+
+    for ble_device, advertisement in parsed_items:
+        mac_address = getattr(ble_device, "address", "")
+        if not mac_address:
+            continue
+        try:
+            normalized_mac = normalize_mac(mac_address)
+        except ValueError:
+            continue
+        if normalized_mac in seen_macs:
+            continue
+        seen_macs.add(normalized_mac)
+
+        device_name = getattr(ble_device, "name", None) or getattr(advertisement, "local_name", None)
+        devices.append(
+            BluetoothDevice(
+                mac_address=normalized_mac,
+                device_name=device_name,
+                is_connected=False,
+                is_paired=False,
+                device_class="BLE",
+            )
+        )
+
+    return devices
 
 
 def _parse_bt_output(output: str) -> list[BluetoothDevice]:
@@ -236,3 +363,19 @@ def _is_bluetooth_adapter(name: str) -> bool:
         r"(?i)microsoft.*bluetooth.*enumerator",
     ]
     return any(re.search(pattern, name) for pattern in adapter_patterns)
+
+
+def _is_wsl() -> bool:
+    """Return True when running under Windows Subsystem for Linux."""
+    if platform.system().lower() != "linux":
+        return False
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    for version_path in ("/proc/sys/kernel/osrelease", "/proc/version"):
+        try:
+            with open(version_path, encoding="utf-8") as version_file:
+                if "microsoft" in version_file.read().lower():
+                    return True
+        except OSError:
+            continue
+    return False

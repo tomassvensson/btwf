@@ -5,6 +5,7 @@ import pytest
 from src.bluetooth_scanner import (
     BluetoothDevice,
     _is_bluetooth_adapter,
+    _parse_ble_discovery_results,
     _parse_bt_output,
 )
 
@@ -129,3 +130,51 @@ class TestBluetoothDeviceDataclass:
         )
         assert device.vendor is not None
         assert "Apple" in device.vendor
+
+
+class TestParseBleDiscoveryResults:
+    """Tests for Linux BLE discovery parsing."""
+
+    class FakeBleDevice:
+        def __init__(self, address: str, name: str | None) -> None:
+            self.address = address
+            self.name = name
+
+    class FakeAdvertisement:
+        def __init__(self, local_name: str | None) -> None:
+            self.local_name = local_name
+
+    @pytest.mark.timeout(30)
+    def test_parses_list_of_ble_devices(self) -> None:
+        devices = _parse_ble_discovery_results(
+            [
+                self.FakeBleDevice("AA:BB:CC:DD:EE:FF", "Beacon"),
+                self.FakeBleDevice("11:22:33:44:55:66", None),
+            ]
+        )
+        assert len(devices) == 2
+        assert devices[0].device_name == "Beacon"
+        assert devices[0].device_class == "BLE"
+
+    @pytest.mark.timeout(30)
+    def test_uses_advertisement_name_when_device_name_missing(self) -> None:
+        devices = _parse_ble_discovery_results(
+            {
+                "device": (
+                    self.FakeBleDevice("AA:BB:CC:DD:EE:FF", None),
+                    self.FakeAdvertisement("Tag"),
+                )
+            }
+        )
+        assert len(devices) == 1
+        assert devices[0].device_name == "Tag"
+
+    @pytest.mark.timeout(30)
+    def test_deduplicates_by_mac(self) -> None:
+        devices = _parse_ble_discovery_results(
+            [
+                self.FakeBleDevice("AA:BB:CC:DD:EE:FF", "One"),
+                self.FakeBleDevice("AA:BB:CC:DD:EE:FF", "Two"),
+            ]
+        )
+        assert len(devices) == 1
