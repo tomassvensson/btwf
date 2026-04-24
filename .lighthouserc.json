@@ -16,11 +16,23 @@
         "is-on-https": "off",
         "uses-http2": "off",
         "redirects-http": "off",
-        "hsts": "off",
+        "has-hsts": "off",
         "canonical": "off",
         "uses-long-cache-ttl": "off",
         "uses-text-compression": "off",
-        "total-byte-weight": "off"
+        "total-byte-weight": "off",
+        "unused-javascript": "off",
+        "unused-css-rules": "off",
+        "uses-rel-preconnect": "off",
+        "csp-xss": "off",
+        "clickjacking-mitigation": "off",
+        "robots-txt": "off",
+        "origin-isolation": "off",
+        "valid-source-maps": "off",
+        "bf-cache": "off",
+        "third-party-facades": "off",
+        "unminified-css": "off",
+        "unminified-javascript": "off"
       }
     },
     "upload": {
