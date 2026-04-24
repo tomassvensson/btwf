@@ -934,3 +934,21 @@ class TestMainEntryPoint:
         mock_cfg.return_value.api.enabled = False
         # Should complete without raising
         main()
+
+    @patch("src.main.run_scan")
+    @patch("src.main.load_config")
+    @pytest.mark.timeout(30)
+    def test_rescan_ports_enables_port_scan(self, mock_cfg: MagicMock, mock_run_scan: MagicMock) -> None:
+        """--rescan-ports must enable port_scan.enabled even when it defaults to False."""
+        import sys
+
+        cfg = AppConfig()
+        cfg.api.enabled = False
+        cfg.port_scan.enabled = False  # default disabled
+        mock_cfg.return_value = cfg
+
+        with patch.object(sys, "argv", ["btwifi", "--rescan-ports"]):
+            main()
+
+        assert cfg.port_scan.enabled is True
+        mock_run_scan.assert_called_once()
