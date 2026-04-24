@@ -15,20 +15,15 @@ Typical workflow
 
 Configuration (config.yaml)
 ----------------------------
-.. code-block:: yaml
-
-    snmp:
-      enabled: true
-      community: "public"
-      port: 161
-      timeout: 2
-      retries: 1
-      max_hosts: 254       # max hosts to scan per run
-      oids:
-        - "1.3.6.1.2.1.1.1.0"   # sysDescr
-        - "1.3.6.1.2.1.1.5.0"   # sysName
-        - "1.3.6.1.2.1.1.4.0"   # sysContact
-        - "1.3.6.1.2.1.1.6.0"   # sysLocation
+Typical keys:
+- enabled: true
+- community: "public"
+- port: 161
+- timeout_seconds: 2
+- retries: 1
+- subnet: "192.168.1.0/24"
+- max_hosts: 254
+- oids: standard System MIB OIDs (optional override)
 """
 
 import logging
@@ -266,7 +261,7 @@ class SnmpScanner:
 
         community = getattr(snmp_cfg, "community", "public")
         port = getattr(snmp_cfg, "port", 161)
-        timeout = getattr(snmp_cfg, "timeout", 2)
+        timeout = getattr(snmp_cfg, "timeout_seconds", getattr(snmp_cfg, "timeout", 2))
         retries = getattr(snmp_cfg, "retries", 1)
         max_hosts = getattr(snmp_cfg, "max_hosts", 254)
         subnet = getattr(snmp_cfg, "subnet", None)

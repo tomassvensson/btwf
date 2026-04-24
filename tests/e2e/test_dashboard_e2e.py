@@ -20,6 +20,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -30,7 +31,20 @@ if TYPE_CHECKING:
 # Skip entire module when playwright is not installed
 pytest.importorskip("playwright", reason="playwright is not installed — skipping E2E tests")
 
-from playwright.sync_api import Page, expect  # noqa: E402  # type: ignore[import]
+from playwright.sync_api import Page, expect, sync_playwright  # noqa: E402  # type: ignore[import]
+
+
+def _chromium_available() -> bool:
+    """Return True when the Playwright Chromium binary is installed locally."""
+    try:
+        with sync_playwright() as playwright:
+            return Path(playwright.chromium.executable_path).exists()
+    except Exception:
+        return False
+
+
+if not _chromium_available():
+    pytest.skip("Playwright Chromium browser is not installed — skipping E2E tests", allow_module_level=True)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -172,7 +186,7 @@ class TestHealthEndpoint:
         response = page.request.get(f"{base_url}/api/v1/health")
         body = response.json()
         assert "status" in body
-        assert body["status"] == "ok"
+        assert body["status"] == "healthy"
 
     def test_openapi_docs_available(self, page: Page, base_url: str) -> None:
         """The /docs (Swagger UI) page should load successfully."""

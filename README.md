@@ -73,10 +73,12 @@ python -m src.main
 ```
 
 > **WSL / Linux note:** WiFi and Bluetooth scanners use Windows-only APIs
-> (`netsh`, PowerShell). On Linux or WSL, set `wifi_enabled`, `bluetooth_enabled`,
-> and `ble_enabled` to `false` in `config.yaml`. The ARP, mDNS, SSDP, NetBIOS,
-> and IPv6 scanners work cross-platform. Under WSL2, enable `ping_sweep` with
-> your LAN subnet to discover devices beyond the virtual NAT gateway.
+> (`netsh`, PowerShell). On Linux and WSL they are skipped automatically.
+> You can still set `wifi_enabled`, `bluetooth_enabled`, and `ble_enabled`
+> to `false` in `config.yaml` to suppress those capability checks entirely.
+> The ARP, mDNS, SSDP, NetBIOS, and IPv6 scanners work cross-platform.
+> Under WSL2, enable `ping_sweep` with your LAN subnet to discover devices
+> beyond the virtual NAT gateway.
 
 ## Configuration
 
@@ -94,11 +96,10 @@ scan:
   interval_seconds: 60
 
 whitelist:
-  devices:
-    - mac: "AA:BB:CC:DD:EE:FF"
-      name: "My Router"
-      trusted: true
-      category: "router"
+  - mac_address: "AA:BB:CC:DD:EE:FF"
+    name: "My Router"
+    trusted: true
+    category: "router"
 
 alert:
   enabled: true
@@ -129,6 +130,11 @@ btwf/
 │   ├── alert.py              # New device alert system
 │   ├── api.py                # FastAPI REST API + HTMX dashboard
 │   ├── metrics.py            # Prometheus metrics
+│   ├── templates/            # Jinja2 / HTMX dashboard templates
+│   │   ├── dashboard.html
+│   │   ├── device_detail.html
+│   │   ├── devices_table.html
+│   │   └── windows_table.html
 │   └── data/
 │       └── .gitkeep          # IEEE OUI CSV downloaded here
 ├── tests/                    # pytest test suite
@@ -172,8 +178,9 @@ See [ADR-001](docs/adr/001-technology-choice.md) for the technology choice ratio
 ## Security
 
 - Scanned devices are never given access to the network or computer
-- The system operates in read-only/passive scanning mode
-- No connections are established with discovered devices
+- Discovery is read-only, but some optional scanners actively send standard
+  network probes (for example ping sweep, mDNS, SSDP, NetBIOS, and SNMP)
+- Discovery does not authenticate to devices or change device state
 - See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy
 
 ## REST API & Web Dashboard
@@ -206,13 +213,13 @@ All JSON endpoints are under `/api/v1/`.
 
 ```bash
 curl http://localhost:8000/api/v1/health
-# {"status":"ok","version":"0.1.0"}
+# {"status":"healthy","timestamp":"2026-04-24T07:00:00+00:00","version":"0.1.0","database":{"connected":true,"device_count":42}}
 ```
 
 #### List devices (paginated)
 
 ```bash
-# First page, default page size (20)
+# First page, default page size (50)
 curl http://localhost:8000/api/v1/devices
 
 # Explicit pagination
@@ -224,10 +231,11 @@ Response:
 {
   "devices": [
     {
+      "id": 1,
       "mac_address": "AA:BB:CC:DD:EE:FF",
-      "device_type": "wifi",
+      "device_type": "wifi_ap",
       "vendor": "Apple Inc.",
-      "name": null,
+      "device_name": null,
       "reconnect_count": 3,
       "created_at": "2024-01-01T12:00:00",
       "updated_at": "2024-01-01T13:00:00"
@@ -235,7 +243,8 @@ Response:
   ],
   "total": 42,
   "page": 1,
-  "page_size": 10
+  "page_size": 10,
+  "pages": 5
 }
 ```
 
@@ -253,22 +262,32 @@ curl http://localhost:8000/api/v1/devices/AA:BB:CC:DD:EE:FF/windows
 
 Response:
 ```json
-[
-  {
-    "mac_address": "AA:BB:CC:DD:EE:FF",
-    "first_seen": "2024-01-01T12:00:00",
-    "last_seen": "2024-01-01T13:00:00",
-    "signal_strength_dbm": -65,
-    "scan_count": 5
-  }
-]
+{
+  "mac_address": "AA:BB:CC:DD:EE:FF",
+  "total": 1,
+  "page": 1,
+  "page_size": 50,
+  "pages": 1,
+  "windows": [
+    {
+      "id": 1,
+      "mac_address": "AA:BB:CC:DD:EE:FF",
+      "first_seen": "2024-01-01T12:00:00",
+      "last_seen": "2024-01-01T13:00:00",
+      "signal_strength_dbm": -65,
+      "min_signal_dbm": -70,
+      "max_signal_dbm": -60,
+      "scan_count": 5
+    }
+  ]
+}
 ```
 
 #### Summary statistics
 
 ```bash
 curl http://localhost:8000/api/v1/summary
-# {"total_devices":42,"active_last_hour":7,"device_types":{"wifi":30,"bluetooth":12}}
+# {"total_devices":42,"active_windows":7,"device_types":{"wifi_ap":30,"bluetooth":12},"timestamp":"2026-04-24T07:00:00+00:00"}
 ```
 
 #### HTMX table fragment (for dashboard auto-refresh)
@@ -370,7 +389,7 @@ snmp:
   subnet: "192.168.1.0/24"
   community: "public"
   port: 161
-  timeout: 2
+  timeout_seconds: 2
   retries: 1
   max_hosts: 254
 ```

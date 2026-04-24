@@ -7,6 +7,7 @@ then stores results in the database and displays a human-readable table.
 import csv
 import json
 import logging
+import platform
 import re
 import signal
 import sys
@@ -356,12 +357,19 @@ def _execute_all_scanners(config: AppConfig) -> _ScanData:
         _ScanData with results from each scanner.
     """
     data = _ScanData()
+    windows_runtime = platform.system().lower() == "windows"
 
     if config.scan.wifi_enabled:
-        data.wifi_networks = _run_scanner("WiFi", scan_wifi_networks)
+        if windows_runtime:
+            data.wifi_networks = _run_scanner("WiFi", scan_wifi_networks)
+        else:
+            logger.info("Skipping WiFi scan: Windows netsh scanning is unavailable on %s", platform.system())
 
     if config.scan.bluetooth_enabled:
-        data.bt_devices = _run_scanner("Bluetooth", scan_bluetooth_devices)
+        if windows_runtime:
+            data.bt_devices = _run_scanner("Bluetooth", scan_bluetooth_devices)
+        else:
+            logger.info("Skipping Bluetooth scan: Windows PowerShell scanning is unavailable on %s", platform.system())
 
     if config.scan.arp_enabled:
         data.arp_devices = _run_scanner("ARP", scan_arp_table)

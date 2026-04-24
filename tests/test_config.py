@@ -54,6 +54,11 @@ class TestAppConfigDefaults:
         assert isinstance(config.oui, OuiConfig)
         assert isinstance(config.monitor_mode, MonitorModeConfig)
         assert config.database.url == "sqlite:///btwifi.db"
+        assert config.snmp.enabled is False
+        assert config.snmp.timeout_seconds == pytest.approx(2.0)
+        assert config.snmp.retries == 1
+        assert config.snmp.max_hosts == 254
+        assert config.snmp.subnet == ""
 
 
 class TestParseRawConfig:
@@ -126,6 +131,31 @@ class TestParseRawConfig:
         config = _parse_raw_config(raw)
         assert config.snmp.community == "private"
         assert config.snmp.version == 3
+
+    @pytest.mark.timeout(30)
+    def test_snmp_section_with_extended_fields(self) -> None:
+        raw = {
+            "snmp": {
+                "enabled": True,
+                "community": "private",
+                "version": 2,
+                "port": 1161,
+                "timeout": 5,
+                "retries": 3,
+                "max_hosts": 32,
+                "subnet": "192.168.1.0/24",
+                "target_hosts": ["192.168.1.1"],
+            }
+        }
+        config = _parse_raw_config(raw)
+        assert config.snmp.enabled is True
+        assert config.snmp.community == "private"
+        assert config.snmp.port == 1161
+        assert config.snmp.timeout_seconds == pytest.approx(5)
+        assert config.snmp.retries == 3
+        assert config.snmp.max_hosts == 32
+        assert config.snmp.subnet == "192.168.1.0/24"
+        assert config.snmp.target_hosts == ["192.168.1.1"]
 
     @pytest.mark.timeout(30)
     def test_oui_section(self) -> None:

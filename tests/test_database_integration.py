@@ -49,9 +49,9 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def pg_container():
     """Start a PostgreSQL container for the test module and tear it down after."""
-    from testcontainers.postgres import PostgreSqlContainer
+    from testcontainers.postgres import PostgresContainer
 
-    with PostgreSqlContainer(
+    with PostgresContainer(
         image="postgres:16-alpine",
         driver="pg8000",
     ) as pg:

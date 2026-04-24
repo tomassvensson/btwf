@@ -12,6 +12,7 @@ from src.main import (
     _best_name,
     _categorize_all_devices,
     _display_results,
+    _execute_all_scanners,
     _format_signal,
     _format_time,
     _friendly_vendor,
@@ -254,11 +255,13 @@ class TestRunScan:
     @patch("src.main.scan_arp_table")
     @patch("src.main.scan_bluetooth_devices")
     @patch("src.main.scan_wifi_networks")
+    @patch("src.main.platform.system", return_value="Windows")
     @patch("src.main.init_database")
     @pytest.mark.timeout(30)
     def test_full_scan_with_mocked_scanners(
         self,
         mock_init_db,
+        _mock_platform,
         mock_wifi_scan,
         mock_bt_scan,
         mock_arp_scan,
@@ -312,11 +315,13 @@ class TestRunScan:
     @patch("src.main.scan_arp_table")
     @patch("src.main.scan_bluetooth_devices")
     @patch("src.main.scan_wifi_networks")
+    @patch("src.main.platform.system", return_value="Windows")
     @patch("src.main.init_database")
     @pytest.mark.timeout(30)
     def test_scan_handles_scanner_errors(
         self,
         mock_init_db,
+        _mock_platform,
         mock_wifi_scan,
         mock_bt_scan,
         mock_arp_scan,
@@ -336,6 +341,31 @@ class TestRunScan:
         config.scan.netbios_enabled = False
         config.scan.ipv6_enabled = False
         run_scan(config)
+
+    @patch("src.main.scan_bluetooth_devices")
+    @patch("src.main.scan_wifi_networks")
+    @patch("src.main.platform.system", return_value="Linux")
+    @pytest.mark.timeout(30)
+    def test_skips_windows_only_scanners_on_linux(
+        self,
+        _mock_platform,
+        mock_wifi_scan,
+        mock_bt_scan,
+    ) -> None:
+        """Linux runs should skip the Windows-only WiFi and Bluetooth scanners."""
+        config = AppConfig()
+        config.scan.arp_enabled = False
+        config.scan.mdns_enabled = False
+        config.scan.ssdp_enabled = False
+        config.scan.netbios_enabled = False
+        config.scan.ipv6_enabled = False
+
+        data = _execute_all_scanners(config)
+
+        assert data.wifi_networks == []
+        assert data.bt_devices == []
+        mock_wifi_scan.assert_not_called()
+        mock_bt_scan.assert_not_called()
 
 
 class TestHandleShutdown:

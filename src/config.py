@@ -49,10 +49,14 @@ class ArpConfig:
 class SnmpConfig:
     """SNMP discovery settings."""
 
+    enabled: bool = False
     community: str = "public"
     version: int = 2
     port: int = 161
     timeout_seconds: float = 2.0
+    retries: int = 1
+    max_hosts: int = 254
+    subnet: str = ""
     target_hosts: list[str] = field(default_factory=list)
 
 
@@ -265,11 +269,16 @@ def _parse_raw_config(raw: dict) -> AppConfig:
 
     if "snmp" in raw:
         sn = raw["snmp"]
+        timeout_seconds = sn.get("timeout_seconds", sn.get("timeout", config.snmp.timeout_seconds))
         config.snmp = SnmpConfig(
+            enabled=sn.get("enabled", config.snmp.enabled),
             community=sn.get("community", config.snmp.community),
             version=sn.get("version", config.snmp.version),
             port=sn.get("port", config.snmp.port),
-            timeout_seconds=sn.get("timeout_seconds", config.snmp.timeout_seconds),
+            timeout_seconds=timeout_seconds,
+            retries=sn.get("retries", config.snmp.retries),
+            max_hosts=sn.get("max_hosts", config.snmp.max_hosts),
+            subnet=sn.get("subnet", config.snmp.subnet),
             target_hosts=sn.get("target_hosts", config.snmp.target_hosts),
         )
 
