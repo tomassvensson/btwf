@@ -1106,8 +1106,12 @@ def main() -> None:
     )
     _top_parser.add_argument("--once", action="store_true", help="Run a single scan cycle and exit.")
     _top_parser.add_argument("--continuous", action="store_true", help="Run in continuous loop.")
-    _top_parser.add_argument("--rescan-ports", action="store_true", dest="rescan_ports",
-                             help="Force a fresh TCP port scan for all network devices this cycle.")
+    _top_parser.add_argument(
+        "--rescan-ports",
+        action="store_true",
+        dest="rescan_ports",
+        help="Force a fresh TCP port scan for all network devices this cycle.",
+    )
     _top_parser.add_argument("--export", choices=["csv", "json"], help="Dump all devices and exit.")
     _top_parser.add_argument("--output", default="-", help="Write --export output to file (default: stdout).")
     _top_parser.parse_known_args()  # exits with 0 if --help / -h was passed
