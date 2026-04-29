@@ -193,7 +193,7 @@ jobs:
           name: bandit-report
           path: bandit-report.json
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           scan-type: fs
           scan-ref: .
@@ -212,7 +212,7 @@ jobs:
         run: docker build -t net-sentry:ci .
         continue-on-error: true
       - name: Trivy Docker image scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           scan-type: image
           image-ref: net-sentry:ci
