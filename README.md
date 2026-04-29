@@ -1,7 +1,7 @@
 # Net Sentry — Network Device Visibility Tracker
 
 > GitHub repo: <https://github.com/tomassvensson/net-sentry>
-
+>
 > **⚠️ Legal & Ethics Notice**
 > Net Sentry is designed for monitoring **networks and devices that you own or have explicit permission to scan**.
 > Scanning networks or devices without authorisation may violate applicable laws (e.g. the Computer Fraud and Abuse Act in the US, the Computer Misuse Act in the UK, or equivalent legislation in your jurisdiction).
@@ -17,7 +17,7 @@ Net Sentry continuously or on-demand scans your wireless and wired environment f
 ## Features
 
 | Feature | Details |
-|---|---|
+| --- | --- |
 | **WiFi scanning** | Discovers nearby access points (SSID, BSSID, signal, channel, encryption). Uses `netsh` on Windows, `nmcli`/`iw` on Linux |
 | **Bluetooth / BLE** | Classic Bluetooth via PowerShell (Windows) or BlueZ; BLE via `bleak` on Linux |
 | **ARP table** | Reads the kernel ARP cache for currently-reachable LAN devices |
@@ -102,7 +102,7 @@ net-sentry --export json --output devices.json
 
 ## CLI Reference
 
-```
+```text
 net-sentry [OPTIONS]
 
 Options:
@@ -210,7 +210,7 @@ curl -H 'Authorization: Bearer <token>' \
 ```
 
 | Method | Path | Description |
-|---|---|---|
+| --- | --- | --- |
 | `GET` | `/api/v1/health` | Liveness check -> `{"status":"ok"}` |
 | `GET` | `/api/v1/devices` | List all known devices (supports `limit`/`offset`) |
 | `GET` | `/api/v1/devices/{mac}` | Single device with visibility history |
@@ -331,7 +331,7 @@ pytest --cov=src --cov-report=term-missing
 
 ## Architecture
 
-```
+```text
 net-sentry/
 ├── src/
 │   ├── main.py            # Entry point: CLI, scan orchestration, display

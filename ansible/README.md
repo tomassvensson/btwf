@@ -6,7 +6,7 @@ Debian/Ubuntu hosts (e.g. a Raspberry Pi).
 
 ## Directory layout
 
-```
+```text
 ansible/
 ├── site.yml                          # Top-level playbook
 └── roles/
@@ -21,11 +21,13 @@ ansible/
 ## Quick start
 
 1. **Install Ansible** on your control machine:
+
    ```bash
    pip install ansible
    ```
 
 2. **Create an inventory file** (`inventory.yml`):
+
    ```yaml
    all:
      hosts:
@@ -35,6 +37,7 @@ ansible/
    ```
 
 3. **Run the playbook**:
+
    ```bash
    ansible-playbook ansible/site.yml -i inventory.yml --ask-become-pass
    ```
@@ -42,7 +45,7 @@ ansible/
 ## Variables
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `net_sentry_user` | `net-sentry` | OS user to run the service |
 | `net_sentry_group` | `net-sentry` | OS group |
 | `net_sentry_home` | `/opt/net-sentry` | Installation directory |
