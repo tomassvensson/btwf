@@ -72,7 +72,7 @@ jobs:
           pytest tests/ -m "not integration" --timeout=120 --cov=src --cov-report=xml --cov-report=term-missing
       - name: Upload coverage artifact
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
@@ -187,7 +187,7 @@ jobs:
           bandit -r src/ -ll -q 2>&1 || true
       - name: Upload Bandit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bandit-report
           path: bandit-report.json
