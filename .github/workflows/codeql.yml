@@ -13,6 +13,7 @@ jobs:
   analyze:
     name: Analyze (Python)
     runs-on: ubuntu-latest
+    continue-on-error: true  # SARIF upload may conflict with GitHub's built-in CodeQL auto-analysis
     permissions:
       actions: read
       contents: read
