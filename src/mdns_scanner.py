@@ -28,6 +28,9 @@ _DNS_TYPE_TXT = 16
 _DNS_TYPE_AAAA = 28
 _DNS_TYPE_SRV = 33
 
+# DNS-SD service enumeration query — returns PTR records naming all service types
+_DNS_SD_SERVICES = "_services._dns-sd._udp.local."
+
 # Common mDNS service types to browse
 _SERVICE_TYPES: list[str] = [
     "_http._tcp.local.",
@@ -96,7 +99,25 @@ def scan_mdns_services(timeout: float = _BROWSE_TIMEOUT) -> list[MdnsDevice]:
     all_records: list[dict] = []
 
     try:
-        for stype in _SERVICE_TYPES:
+        # Step 1: DNS-SD service enumeration — discover what service types are present
+        dynamic_service_types: list[str] = []
+        enum_responses = _query_service_type(sock, _DNS_SD_SERVICES, timeout)
+        for raw in enum_responses:
+            records = _parse_dns_records(raw)
+            for r in records:
+                if r["type"] == _DNS_TYPE_PTR and "target" in r:
+                    svc = r["target"]
+                    # PTR targets from _services._dns-sd are service-type names
+                    if svc not in _SERVICE_TYPES and svc not in dynamic_service_types:
+                        dynamic_service_types.append(svc)
+                        logger.debug("DNS-SD discovered service type: %s", svc)
+
+        if dynamic_service_types:
+            logger.info("DNS-SD enumeration found %d additional service types", len(dynamic_service_types))
+
+        # Step 2: Query all service types (static + discovered)
+        all_service_types = list(_SERVICE_TYPES) + dynamic_service_types
+        for stype in all_service_types:
             raw_responses = _query_service_type(sock, stype, timeout)
             for raw in raw_responses:
                 records = _parse_dns_records(raw)

@@ -1,6 +1,7 @@
 """Tests for src/snmp_scanner.py — SNMP device scanner."""
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,7 +41,7 @@ class TestQuerySnmpDevice:
         """query_snmp_device returns None when error_indication is set."""
 
         fake_module = MagicMock()
-        fake_module.getCmd.return_value = iter([("Timeout", None, 0, [])])
+        fake_module.getCmd = AsyncMock(return_value=("Timeout", None, 0, []))
         fake_module.SnmpEngine.return_value = MagicMock()
         fake_module.CommunityData.return_value = MagicMock()
         fake_module.UdpTransportTarget.return_value = MagicMock()
@@ -52,7 +53,8 @@ class TestQuerySnmpDevice:
             "sys.modules",
             {
                 "pysnmp": MagicMock(),
-                "pysnmp.hlapi": fake_module,
+                "pysnmp.hlapi": MagicMock(),
+                "pysnmp.hlapi.asyncio": fake_module,
             },
         ):
             import importlib
@@ -73,7 +75,7 @@ class TestQuerySnmpDevice:
 
         # error_index=0 avoids index lookup into the (empty) result list
         fake_module = MagicMock()
-        fake_module.getCmd.return_value = iter([(None, error_status_mock, 0, [])])
+        fake_module.getCmd = AsyncMock(return_value=(None, error_status_mock, 0, []))
         fake_module.SnmpEngine.return_value = MagicMock()
         fake_module.CommunityData.return_value = MagicMock()
         fake_module.UdpTransportTarget.return_value = MagicMock()
@@ -85,7 +87,8 @@ class TestQuerySnmpDevice:
             "sys.modules",
             {
                 "pysnmp": MagicMock(),
-                "pysnmp.hlapi": fake_module,
+                "pysnmp.hlapi": MagicMock(),
+                "pysnmp.hlapi.asyncio": fake_module,
             },
         ):
             import importlib
@@ -109,7 +112,7 @@ class TestQuerySnmpDevice:
         ]
 
         fake_module = MagicMock()
-        fake_module.getCmd.return_value = iter([(None, None, 0, varbinds)])
+        fake_module.getCmd = AsyncMock(return_value=(None, None, 0, varbinds))
         fake_module.SnmpEngine.return_value = MagicMock()
         fake_module.CommunityData.return_value = MagicMock()
         fake_module.UdpTransportTarget.return_value = MagicMock()
@@ -121,7 +124,8 @@ class TestQuerySnmpDevice:
             "sys.modules",
             {
                 "pysnmp": MagicMock(),
-                "pysnmp.hlapi": fake_module,
+                "pysnmp.hlapi": MagicMock(),
+                "pysnmp.hlapi.asyncio": fake_module,
             },
         ):
             import importlib

@@ -355,3 +355,115 @@ def _resolve_hostname(ip_address: str) -> str | None:
         pass
 
     return None
+
+
+def discover_subnets_from_routing_table() -> list[str]:
+    """Auto-detect local subnets by parsing the OS routing table.
+
+    Reads the routing table and returns all directly-connected (non-default)
+    network prefixes in CIDR notation.  Supports Linux (``ip route show``)
+    and Windows (``route print``).
+
+    Returns:
+        Sorted list of CIDR strings, e.g. ``["192.168.1.0/24", "10.0.0.0/8"]``.
+        Returns an empty list if the command fails or no subnets are found.
+    """
+    system = platform.system().lower()
+    if system == "windows":
+        return _parse_windows_routing_table()
+    return _parse_linux_routing_table()
+
+
+def _parse_linux_routing_table() -> list[str]:
+    """Parse `ip route show` to extract directly-connected subnets."""
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        logger.warning("'ip' command not found; cannot auto-detect subnets.")
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("'ip route show' timed out.")
+        return []
+
+    subnets: set[str] = set()
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        # Skip default routes and kernel/unreachable entries
+        if line.startswith(("default", "unreachable", "prohibit", "blackhole")):
+            continue
+        # First token is the network (CIDR or bare IP)
+        parts = line.split()
+        if not parts:
+            continue
+        candidate = parts[0]
+        try:
+            net = ipaddress.ip_network(candidate, strict=False)
+            # Only include private / RFC-1918 / link-local subnets with prefix ≥ /8
+            if net.prefixlen >= 8:
+                subnets.add(str(net))
+        except ValueError:
+            pass
+
+    discovered = sorted(subnets)
+    logger.info("Routing table: discovered %d subnet(s): %s", len(discovered), discovered)
+    return discovered
+
+
+def _parse_windows_routing_table() -> list[str]:
+    """Parse ``route print`` to extract directly-connected subnets (Windows)."""
+    try:
+        result = subprocess.run(
+            ["route", "print", "-4"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        logger.warning("'route' command not found; cannot auto-detect subnets.")
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("'route print' timed out.")
+        return []
+
+    subnets: set[str] = set()
+    # The IPv4 route table has lines like:
+    #   Network Destination  Netmask  Gateway  Interface  Metric
+    #   192.168.1.0          255.255.255.0   On-link  192.168.1.x  281
+    _ipv4_section = False
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if "IPv4 Route Table" in stripped or "Active Routes" in stripped:
+            _ipv4_section = True
+            continue
+        if _ipv4_section and stripped.startswith("=") and stripped.count("=") > 10:
+            # Separator line between sections
+            continue
+        if not _ipv4_section:
+            continue
+        # Skip header / empty lines
+        if not stripped or stripped.startswith("Network") or stripped.startswith("="):
+            continue
+        parts = stripped.split()
+        if len(parts) < 2:
+            continue
+        dest, mask = parts[0], parts[1]
+        # Skip default and loopback
+        if dest in ("0.0.0.0", "127.0.0.0"):
+            continue
+        try:
+            net = ipaddress.ip_network(f"{dest}/{mask}", strict=False)
+            if net.prefixlen >= 8:
+                subnets.add(str(net))
+        except ValueError:
+            pass
+
+    discovered = sorted(subnets)
+    logger.info("Routing table: discovered %d subnet(s): %s", len(discovered), discovered)
+    return discovered

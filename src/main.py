@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TypeVar
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, func
 from sqlalchemy.orm import Session as DbSession
 from tabulate import tabulate
 
@@ -33,6 +33,8 @@ from src.device_tracker import (
 )
 from src.home_assistant import HaDevice, build_ha_lookup, enrich_from_ha, fetch_ha_devices
 from src.ipv6_scanner import Ipv6Neighbor, scan_ipv6_neighbors
+from src.logging_setup import setup_logging
+from src.tracing import setup_tracing
 from src.mdns_scanner import MdnsDevice
 from src.models import Device, VisibilityWindow
 from src.network_discovery import NetworkDevice, ping_sweep, scan_arp_table
@@ -42,7 +44,7 @@ from src.ssdp_scanner import SsdpDevice
 from src.whitelist import WhitelistManager
 from src.wifi_scanner import WifiNetwork, scan_wifi_networks
 
-# Configure logging
+# Configure logging — can be overridden by run_scan() or config at startup
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -314,6 +316,23 @@ def _run_single_scan(
         session.flush()
         _display_results(session, whitelist)
 
+    # Check disappearance rules (E: configurable alert rules)
+    disappearance_macs = [
+        r.mac_address
+        for r in config.alert.rules
+        if r.rule_type == "disappearance" and r.mac_address
+    ]
+    if disappearance_macs:
+        with get_session(engine) as session:
+            rows = (
+                session.query(VisibilityWindow.mac_address, func.max(VisibilityWindow.last_seen))
+                .filter(VisibilityWindow.mac_address.in_(disappearance_macs))
+                .group_by(VisibilityWindow.mac_address)
+                .all()
+            )
+        last_seen_by_mac = {mac: last for mac, last in rows if last is not None}
+        alert_mgr.check_disappearance(last_seen_by_mac)
+
     scan_duration = time.time() - scan_start
 
     # Record metrics
@@ -385,7 +404,10 @@ def _execute_all_scanners(config: AppConfig) -> _ScanData:
         data.bt_devices = _run_scanner("Bluetooth", scan_bluetooth_devices)
 
     if config.scan.ble_enabled and platform.system().lower() == "linux":
-        ble_devices = _run_scanner("BLE", scan_ble_devices)
+        ble_devices = _run_scanner(
+            "BLE",
+            lambda: scan_ble_devices(scanning_mode=config.scan.ble_scanning_mode),
+        )
         data.bt_devices = _merge_bluetooth_devices(data.bt_devices, ble_devices)
 
     if config.scan.arp_enabled:
@@ -1142,8 +1164,12 @@ def main() -> None:
 
     try:
         config = load_config()
-
-        # Apply CLI overrides
+        setup_logging(json_enabled=config.json_logging)
+        setup_tracing(
+            enabled=config.tracing.enabled,
+            service_name=config.tracing.service_name,
+            exporter=config.tracing.exporter,
+        )
         if _scan_args.once and _scan_args.continuous:
             logger.warning("Both --once and --continuous given; --continuous takes precedence.")
         if _scan_args.continuous:

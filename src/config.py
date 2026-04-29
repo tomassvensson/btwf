@@ -24,6 +24,7 @@ class ScanConfig:
     wifi_enabled: bool = True
     bluetooth_enabled: bool = True
     ble_enabled: bool = True
+    ble_scanning_mode: str = "passive"  # "passive" or "active"
     arp_enabled: bool = True
     mdns_enabled: bool = True
     ssdp_enabled: bool = True
@@ -114,6 +115,29 @@ class DatabaseConfig:
 
 
 @dataclass
+class AlertRule:
+    """A configurable alert rule.
+
+    rule_type "disappearance": fire when a specific device has not been seen
+    for longer than ``threshold_minutes``.
+
+    rule_type "time_window": fire when any new device is first discovered
+    during the given hour window (0-23, end_hour exclusive, wraps midnight).
+    """
+
+    rule_type: str  # "disappearance" | "time_window"
+    # -- disappearance fields --
+    mac_address: str | None = None
+    threshold_minutes: int = 30
+    # -- time_window fields --
+    start_hour: int = 0   # 0-23 inclusive
+    end_hour: int = 6     # 0-23 exclusive (alert if start_hour <= hour < end_hour)
+    device_type_filter: str | None = None  # optional; e.g. "bluetooth"
+    # -- common --
+    label: str = ""  # human-readable name for log messages
+
+
+@dataclass
 class AlertConfig:
     """Alert/notification settings."""
 
@@ -122,6 +146,7 @@ class AlertConfig:
     log_file: str | None = None
     sound_enabled: bool = False
     cooldown_seconds: int = 300  # Minimum seconds between alerts for the same MAC address
+    rules: list[AlertRule] = field(default_factory=list)
 
 
 @dataclass
@@ -204,6 +229,15 @@ class MetricsConfig:
 
 
 @dataclass
+class TracingConfig:
+    """OpenTelemetry tracing settings."""
+
+    enabled: bool = False
+    service_name: str = "net-sentry"
+    exporter: str = "console"
+
+
+@dataclass
 class AppConfig:
     """Root application configuration."""
 
@@ -221,6 +255,8 @@ class AppConfig:
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     port_scan: PortScanConfig = field(default_factory=PortScanConfig)
     home_assistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
+    json_logging: bool = False
+    tracing: TracingConfig = field(default_factory=TracingConfig)
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
@@ -348,12 +384,27 @@ def _parse_raw_config(raw: dict) -> AppConfig:
 
     if "alert" in raw:
         al = raw["alert"]
+        parsed_rules: list[AlertRule] = []
+        for r in al.get("rules", []):
+            if isinstance(r, dict) and r.get("rule_type"):
+                parsed_rules.append(
+                    AlertRule(
+                        rule_type=r["rule_type"],
+                        mac_address=r.get("mac_address"),
+                        threshold_minutes=int(r.get("threshold_minutes", 30)),
+                        start_hour=int(r.get("start_hour", 0)),
+                        end_hour=int(r.get("end_hour", 6)),
+                        device_type_filter=r.get("device_type_filter"),
+                        label=r.get("label", ""),
+                    )
+                )
         config.alert = AlertConfig(
             enabled=al.get("enabled", config.alert.enabled),
             log_new_devices=al.get("log_new_devices", config.alert.log_new_devices),
             log_file=al.get("log_file", config.alert.log_file),
             sound_enabled=al.get("sound_enabled", config.alert.sound_enabled),
             cooldown_seconds=al.get("cooldown_seconds", config.alert.cooldown_seconds),
+            rules=parsed_rules,
         )
 
     if "whitelist" in raw:
@@ -417,6 +468,17 @@ def _parse_raw_config(raw: dict) -> AppConfig:
         me = raw["metrics"]
         config.metrics = MetricsConfig(
             enabled=me.get("enabled", config.metrics.enabled),
+        )
+
+    if "json_logging" in raw:
+        config.json_logging = bool(raw["json_logging"])
+
+    if "tracing" in raw:
+        tr = raw["tracing"]
+        config.tracing = TracingConfig(
+            enabled=tr.get("enabled", config.tracing.enabled),
+            service_name=tr.get("service_name", config.tracing.service_name),
+            exporter=tr.get("exporter", config.tracing.exporter),
         )
 
     return config

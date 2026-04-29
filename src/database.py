@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,26 @@ from sqlalchemy import Column, Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.models import Base
+
+# ---------------------------------------------------------------------------
+# Python 3.12+ SQLite datetime adapter (I: compatibility fix)
+# ---------------------------------------------------------------------------
+# The built-in sqlite3 datetime adapter is deprecated in Python 3.12.
+# Register explicit ISO 8601 adapters so SQLAlchemy works without warnings.
+
+
+def _adapt_datetime_iso(dt: datetime) -> str:
+    """Serialise a datetime to an ISO 8601 string for SQLite storage."""
+    return dt.isoformat()
+
+
+def _convert_datetime_iso(value: bytes) -> datetime:
+    """Deserialise an ISO 8601 byte string back to a datetime."""
+    return datetime.fromisoformat(value.decode())
+
+
+sqlite3.register_adapter(datetime, _adapt_datetime_iso)
+sqlite3.register_converter("datetime", _convert_datetime_iso)
 
 logger = logging.getLogger(__name__)
 

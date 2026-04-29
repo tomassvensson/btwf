@@ -1,6 +1,18 @@
 # Net Sentry Configuration
 # Copy this to config.yaml and customize as needed.
 
+# Emit structured JSON log records (compatible with Elasticsearch, Loki, Datadog).
+# Set to false (default) for human-readable log output during development.
+json_logging: false
+
+# OpenTelemetry distributed tracing.
+# exporter: "console" | "otlp" | "none"
+# For OTLP, set OTEL_EXPORTER_OTLP_ENDPOINT env var (default: http://localhost:4317).
+tracing:
+  enabled: false
+  service_name: net-sentry
+  exporter: console
+
 scan:
   # Run continuously in a loop
   continuous: false
@@ -67,6 +79,20 @@ alert:
   log_new_devices: true
   log_file: null
   sound_enabled: false
+  cooldown_seconds: 300
+  # Configurable alert rules (E):
+  #   disappearance — fire if a specific device has not been seen for > threshold_minutes
+  #   time_window   — fire if a new device is discovered during the given hour window
+  rules: []
+  # - rule_type: disappearance
+  #   mac_address: "AA:BB:CC:DD:EE:FF"
+  #   threshold_minutes: 30
+  #   label: "Front-door camera"
+  # - rule_type: time_window
+  #   start_hour: 0
+  #   end_hour: 6
+  #   device_type_filter: null   # or e.g. "bluetooth"
+  #   label: "Late-night new device"
 
 # Add known/trusted devices here
 whitelist: []

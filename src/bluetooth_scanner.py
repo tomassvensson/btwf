@@ -157,8 +157,16 @@ def _scan_windows_bluetooth_devices() -> list[BluetoothDevice]:
     return _parse_bt_output(result.stdout)
 
 
-def scan_ble_devices(timeout_seconds: float = 10.0) -> list[BluetoothDevice]:
+def scan_ble_devices(
+    timeout_seconds: float = 10.0,
+    scanning_mode: str = "passive",
+) -> list[BluetoothDevice]:
     """Scan for BLE devices on Linux using bleak.
+
+    Args:
+        timeout_seconds: How long to scan.
+        scanning_mode: ``"passive"`` (default, no connection established) or
+            ``"active"`` (sends scan-request packets to elicit scan-responses).
 
     Returns:
         List of discovered BluetoothDevice objects.
@@ -169,9 +177,9 @@ def scan_ble_devices(timeout_seconds: float = 10.0) -> list[BluetoothDevice]:
         logger.info("Skipping BLE scan: direct Bluetooth access is not typically available under WSL")
         return []
 
-    logger.info("Starting BLE device scan...")
+    logger.info("Starting BLE device scan (mode=%s)...", scanning_mode)
     try:
-        discovered_devices = _run_ble_discovery(timeout_seconds)
+        discovered_devices = _run_ble_discovery(timeout_seconds, scanning_mode=scanning_mode)
     except ImportError:
         logger.info("Skipping BLE scan: bleak is not installed")
         return []
@@ -184,26 +192,35 @@ def scan_ble_devices(timeout_seconds: float = 10.0) -> list[BluetoothDevice]:
     return devices
 
 
-async def _discover_ble_devices(timeout_seconds: float) -> list[Any]:
-    """Run a bleak discovery round and return the raw device list."""
+async def _discover_ble_devices(
+    timeout_seconds: float,
+    scanning_mode: str = "passive",
+) -> list[Any]:
+    """Run a bleak discovery round and return the raw device list.
+
+    Args:
+        timeout_seconds: Scan duration.
+        scanning_mode: ``"passive"`` or ``"active"`` (passed to BleakScanner).
+    """
     from bleak import BleakScanner
 
-    return list(await BleakScanner.discover(timeout=timeout_seconds))
+    scanner = BleakScanner(scanning_mode=scanning_mode)
+    return list(await scanner.discover(timeout=timeout_seconds))
 
 
-def _run_ble_discovery(timeout_seconds: float) -> list[Any]:
+def _run_ble_discovery(timeout_seconds: float, scanning_mode: str = "passive") -> list[Any]:
     """Run BLE discovery even when the current thread already has an event loop."""
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(_discover_ble_devices(timeout_seconds))
+        return asyncio.run(_discover_ble_devices(timeout_seconds, scanning_mode=scanning_mode))
 
     result: list[Any] = []
     error: list[BaseException] = []
 
     def _runner() -> None:
         try:
-            result.extend(asyncio.run(_discover_ble_devices(timeout_seconds)))
+            result.extend(asyncio.run(_discover_ble_devices(timeout_seconds, scanning_mode=scanning_mode)))
         except BaseException as exc:  # pragma: no cover - bubbled immediately below
             error.append(exc)
 

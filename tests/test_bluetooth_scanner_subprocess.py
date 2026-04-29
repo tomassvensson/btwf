@@ -82,11 +82,15 @@ class TestScanBleDevices:
     @patch("src.bluetooth_scanner.platform.system", return_value="Linux")
     @pytest.mark.timeout(30)
     def test_successful_linux_ble_scan(self, _mock_platform, _mock_wsl) -> None:
+        outer_self = self
+
         class FakeBleakScanner:
-            @staticmethod
-            async def discover(timeout: float):
+            def __init__(self, **_kwargs: object) -> None:
+                pass
+
+            async def discover(self, timeout: float):  # type: ignore[override]
                 assert timeout == pytest.approx(3.0)
-                return [TestScanBleDevices.FakeBleDevice("AA:BB:CC:DD:EE:FF", "Sensor")]
+                return [outer_self.FakeBleDevice("AA:BB:CC:DD:EE:FF", "Sensor")]
 
         with patch.dict("sys.modules", {"bleak": types.SimpleNamespace(BleakScanner=FakeBleakScanner)}):
             devices = scan_ble_devices(timeout_seconds=3.0)

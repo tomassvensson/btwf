@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import logging
 import re
+import warnings
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,13 @@ def _load_oui_csv() -> dict[str, str]:
 
 
 def _init_mac_lookup() -> None:
-    """Initialize the MAC vendor lookup instance (lazy)."""
+    """Initialize the MAC vendor lookup instance (lazy).
+
+    mac_vendor_lookup calls ``asyncio.get_event_loop()`` in its constructor,
+    which emits a DeprecationWarning in Python 3.10+ when there is no current
+    event loop (e.g. during pytest collection). Suppress that specific warning
+    here (J: asyncio.get_event_loop deprecation fix).
+    """
     global _mac_lookup, _INIT_ATTEMPTED
     if _INIT_ATTEMPTED:
         return
@@ -77,7 +84,13 @@ def _init_mac_lookup() -> None:
     try:
         from mac_vendor_lookup import MacLookup
 
-        _mac_lookup = MacLookup()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="There is no current event loop",
+                category=DeprecationWarning,
+            )
+            _mac_lookup = MacLookup()
         logger.info("MAC vendor lookup database loaded.")
     except ImportError:
         logger.warning("mac-vendor-lookup not installed. Vendor lookup will use built-in fallback.")

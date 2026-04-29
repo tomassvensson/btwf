@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.network_discovery import NetworkDevice, _parse_arp_output
+from src.network_discovery import NetworkDevice, _parse_arp_output, _parse_linux_routing_table, _parse_windows_routing_table, discover_subnets_from_routing_table
 
 
 class TestParseArpOutput:
@@ -94,3 +94,95 @@ class TestNetworkDeviceDataclass:
         )
         assert device.vendor is not None
         assert "Apple" in device.vendor
+
+
+class TestDiscoverSubnetsFromRoutingTable:
+    """Tests for automatic subnet discovery from the OS routing table (F)."""
+
+    @pytest.mark.timeout(30)
+    def test_parse_linux_routing_table_basic(self) -> None:
+        from unittest.mock import patch
+
+        fake_output = (
+            "default via 192.168.1.1 dev eth0\n"
+            "192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.100\n"
+            "10.0.0.0/8 dev tun0 proto kernel scope link src 10.8.0.1\n"
+        )
+        with patch("src.network_discovery.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = fake_output
+            mock_run.return_value.returncode = 0
+            result = _parse_linux_routing_table()
+
+        assert "192.168.1.0/24" in result
+        assert "10.0.0.0/8" in result
+        # default route must be excluded
+        assert "0.0.0.0/0" not in result
+
+    @pytest.mark.timeout(30)
+    def test_parse_linux_routing_table_skips_small_prefix(self) -> None:
+        from unittest.mock import patch
+
+        fake_output = "1.0.0.0/4 dev lo proto kernel scope link\n"
+        with patch("src.network_discovery.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = fake_output
+            mock_run.return_value.returncode = 0
+            result = _parse_linux_routing_table()
+
+        # prefix < /8 should be excluded
+        assert result == []
+
+    @pytest.mark.timeout(30)
+    def test_parse_linux_routing_table_command_not_found(self) -> None:
+        from unittest.mock import patch
+
+        with patch("src.network_discovery.subprocess.run", side_effect=FileNotFoundError):
+            result = _parse_linux_routing_table()
+        assert result == []
+
+    @pytest.mark.timeout(30)
+    def test_parse_windows_routing_table_basic(self) -> None:
+        from unittest.mock import patch
+
+        fake_output = (
+            "===========================================================================\n"
+            "IPv4 Route Table\n"
+            "===========================================================================\n"
+            "Active Routes:\n"
+            "Network Destination        Netmask          Gateway       Interface  Metric\n"
+            "          0.0.0.0          0.0.0.0      192.168.1.1   192.168.1.50     25\n"
+            "        192.168.1.0    255.255.255.0         On-link   192.168.1.50    281\n"
+            "         10.10.0.0      255.255.0.0         On-link     10.10.0.1     35\n"
+        )
+        with patch("src.network_discovery.subprocess.run") as mock_run:
+            mock_run.return_value.stdout = fake_output
+            mock_run.return_value.returncode = 0
+            result = _parse_windows_routing_table()
+
+        assert "192.168.1.0/24" in result
+        assert "10.10.0.0/16" in result
+        assert "0.0.0.0/0" not in result
+
+    @pytest.mark.timeout(30)
+    def test_parse_windows_routing_table_command_not_found(self) -> None:
+        from unittest.mock import patch
+
+        with patch("src.network_discovery.subprocess.run", side_effect=FileNotFoundError):
+            result = _parse_windows_routing_table()
+        assert result == []
+
+    @pytest.mark.timeout(30)
+    def test_discover_subnets_from_routing_table_delegates_by_os(self) -> None:
+        """discover_subnets_from_routing_table() calls the right OS parser."""
+        from unittest.mock import patch
+
+        with patch("src.network_discovery.platform.system", return_value="Windows"), \
+             patch("src.network_discovery._parse_windows_routing_table", return_value=["192.168.0.0/24"]) as mock_win:
+            result = discover_subnets_from_routing_table()
+        mock_win.assert_called_once()
+        assert result == ["192.168.0.0/24"]
+
+        with patch("src.network_discovery.platform.system", return_value="Linux"), \
+             patch("src.network_discovery._parse_linux_routing_table", return_value=["10.0.0.0/8"]) as mock_lin:
+            result = discover_subnets_from_routing_table()
+        mock_lin.assert_called_once()
+        assert result == ["10.0.0.0/8"]

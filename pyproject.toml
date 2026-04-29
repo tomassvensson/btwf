@@ -22,7 +22,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "bcrypt>=4.0",
     "bleak>=0.22.3",
-    "pysnmp-lextudio>=6.2",
+    "pysnmp>=6.2",
     "python-multipart>=0.0.9",
 ]
 
@@ -31,6 +31,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-cov>=4.1,<8.0",
     "pytest-timeout>=2.3",
+    "pytest-asyncio>=0.23",
     "ruff==0.15.12",
     "mypy==1.20.2",
     "types-pyyaml>=6.0",
@@ -68,6 +69,7 @@ snmp = "src.snmp_scanner:SnmpScanner"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--tb=short -q --timeout=30"
+asyncio_mode = "strict"
 markers = [
     "integration: integration tests requiring Docker (deselect with -m 'not integration')",
     "e2e: end-to-end browser tests requiring Playwright (deselect with -m 'not e2e')",

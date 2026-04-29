@@ -214,15 +214,16 @@
     </main>
 
     <script>
+        const _THEME_KEY = 'net-sentry-theme';
         function toggleTheme() {
             const html = document.documentElement;
             const current = html.getAttribute('data-theme');
             const next = current === 'dark' ? 'light' : 'dark';
             html.setAttribute('data-theme', next);
-            localStorage.setItem('Net Sentry-theme', next);
+            localStorage.setItem(_THEME_KEY, next);
         }
-        // Restore saved theme
-        const saved = localStorage.getItem('Net Sentry-theme');
+        // Restore saved theme (G: dark-mode persistence)
+        const saved = localStorage.getItem(_THEME_KEY);
         if (saved) document.documentElement.setAttribute('data-theme', saved);
     </script>
 </body>

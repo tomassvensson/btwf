@@ -118,8 +118,10 @@ def query_snmp_device(
         :class:`SnmpDeviceInfo` on success, ``None`` if unreachable or
         SNMP not supported.
     """
+    import asyncio  # noqa: PLC0415
+
     try:
-        from pysnmp.hlapi import (
+        from pysnmp.hlapi.asyncio import (  # type: ignore[import-untyped]
             CommunityData,
             ContextData,
             ObjectIdentity,
@@ -129,45 +131,53 @@ def query_snmp_device(
             getCmd,
         )
     except ImportError:
-        logger.warning("pysnmp-lextudio is not installed — SNMP scanning unavailable")
+        logger.warning("pysnmp is not installed — SNMP scanning unavailable")
         return None
 
     var_binds: list[Any] = [ObjectType(ObjectIdentity(oid)) for oid in oids]
 
-    engine = SnmpEngine()
-    transport = UdpTransportTarget((ip_address, port), timeout=timeout, retries=retries)
-    auth = CommunityData(community, mpModel=1)  # mpModel=1 → SNMPv2c
+    async def _do_get() -> SnmpDeviceInfo | None:
+        engine = SnmpEngine()
+        transport = UdpTransportTarget((ip_address, port), timeout=timeout, retries=retries)
+        auth = CommunityData(community, mpModel=1)  # mpModel=1 → SNMPv2c
 
-    error_indication, error_status, error_index, result = next(
-        getCmd(engine, auth, transport, ContextData(), *var_binds)
-    )
-
-    if error_indication:
-        logger.debug("SNMP error for %s: %s", ip_address, error_indication)
-        return None
-    if error_status:
-        idx = int(error_index) - 1 if error_index else None
-        faulty_oid = result[idx][0] if idx is not None and 0 <= idx < len(result) else "?"
-        logger.debug(
-            "SNMP error-status for %s: %s at %s",
-            ip_address,
-            error_status.prettyPrint(),
-            faulty_oid,
+        error_indication, error_status, error_index, result = await getCmd(
+            engine, auth, transport, ContextData(), *var_binds
         )
-        return None
 
-    raw: dict[str, str] = {}
-    for var_bind in result:
-        oid_str, val = str(var_bind[0]), str(var_bind[1])
-        raw[oid_str] = val
+        if error_indication:
+            logger.debug("SNMP error for %s: %s", ip_address, error_indication)
+            return None
+        if error_status:
+            idx = int(error_index) - 1 if error_index else None
+            faulty_oid = result[idx][0] if idx is not None and 0 <= idx < len(result) else "?"
+            logger.debug(
+                "SNMP error-status for %s: %s at %s",
+                ip_address,
+                error_status.prettyPrint(),
+                faulty_oid,
+            )
+            return None
 
-    info = SnmpDeviceInfo(ip_address=ip_address, raw=raw)
-    info.sys_descr = raw.get(_OID_SYS_DESCR, raw.get(f"{_OID_SYS_DESCR}.0", ""))
-    info.sys_name = raw.get(_OID_SYS_NAME, raw.get(f"{_OID_SYS_NAME}.0", ""))
-    info.sys_contact = raw.get(_OID_SYS_CONTACT, raw.get(f"{_OID_SYS_CONTACT}.0", ""))
-    info.sys_location = raw.get(_OID_SYS_LOCATION, raw.get(f"{_OID_SYS_LOCATION}.0", ""))
+        raw: dict[str, str] = {}
+        for var_bind in result:
+            oid_str, val = str(var_bind[0]), str(var_bind[1])
+            raw[oid_str] = val
 
-    return info
+        info = SnmpDeviceInfo(ip_address=ip_address, raw=raw)
+        info.sys_descr = raw.get(_OID_SYS_DESCR, raw.get(f"{_OID_SYS_DESCR}.0", ""))
+        info.sys_name = raw.get(_OID_SYS_NAME, raw.get(f"{_OID_SYS_NAME}.0", ""))
+        info.sys_contact = raw.get(_OID_SYS_CONTACT, raw.get(f"{_OID_SYS_CONTACT}.0", ""))
+        info.sys_location = raw.get(_OID_SYS_LOCATION, raw.get(f"{_OID_SYS_LOCATION}.0", ""))
+
+        return info
+
+    try:
+        return asyncio.run(_do_get())
+    except RuntimeError:
+        # Already inside an event loop (e.g. called from FastAPI); run in executor
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(_do_get())
 
 
 def scan_snmp_devices(
@@ -229,10 +239,10 @@ class SnmpScanner:
     """
 
     name = "snmp"
-    description = "SNMPv2c system-info query for local network devices"
+    description = "SNMPv2c system-info query for local network devices (pysnmp)"
 
     def is_available(self) -> bool:
-        """Return True when pysnmp-lextudio is installed."""
+        """Return True when pysnmp is installed."""
         try:
             import pysnmp  # noqa: F401
 

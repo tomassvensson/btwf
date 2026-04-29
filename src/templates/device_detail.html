@@ -173,6 +173,43 @@
         </div>
     </div>
 
+    <!-- Label / Notes / Photo card -->
+    <div class="card">
+        <h2>Notes &amp; Photo</h2>
+        <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start;">
+            {% if device.photo_path %}
+            <div>
+                <img src="{{ device.photo_path }}" alt="Device photo"
+                     style="max-width:160px;max-height:160px;border-radius:6px;border:1px solid var(--border);">
+            </div>
+            {% endif %}
+            <div style="flex:1;min-width:280px;">
+                <form id="notes-form" style="display:flex;flex-direction:column;gap:0.6rem;">
+                    <label style="font-size:0.8rem;color:var(--text-dim);">Label / Alias</label>
+                    <input id="label-input" type="text" maxlength="255"
+                           value="{{ device.label or '' }}"
+                           placeholder="e.g. Living-room TV"
+                           style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.4rem 0.6rem;font-size:0.9rem;">
+                    <label style="font-size:0.8rem;color:var(--text-dim);">Notes</label>
+                    <textarea id="notes-input" rows="3" maxlength="4096"
+                              placeholder="Any notes about this device…"
+                              style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.4rem 0.6rem;font-size:0.9rem;resize:vertical;">{{ device.notes or '' }}</textarea>
+                    <button type="button" id="save-notes-btn" class="btn" style="width:fit-content;">Save</button>
+                    <span id="notes-status" style="font-size:0.8rem;color:var(--text-dim);"></span>
+                </form>
+            </div>
+            <div style="min-width:200px;">
+                <form id="photo-form" style="display:flex;flex-direction:column;gap:0.6rem;">
+                    <label style="font-size:0.8rem;color:var(--text-dim);">Upload Photo</label>
+                    <input id="photo-input" type="file" accept=".jpg,.jpeg,.png,.gif,.webp"
+                           style="color:var(--text);font-size:0.85rem;">
+                    <button type="button" id="upload-photo-btn" class="btn" style="width:fit-content;">Upload</button>
+                    <span id="photo-status" style="font-size:0.8rem;color:var(--text-dim);"></span>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Visibility windows card -->
     <div class="card">
         <h2>Visibility Windows ({{ total_windows }} total)</h2>
@@ -201,5 +238,61 @@
         </table>
     </div>
 </div>
+
+<script>
+    const _THEME_KEY = 'net-sentry-theme';
+    function toggleTheme() {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem(_THEME_KEY, next);
+    }
+    // Restore saved theme on page load (G: dark-mode persistence)
+    const _savedTheme = localStorage.getItem(_THEME_KEY);
+    if (_savedTheme) document.documentElement.dataset.theme = _savedTheme;
+    // Wire the toggle button to use localStorage
+    document.addEventListener('DOMContentLoaded', function() {
+        const btn = document.querySelector('.theme-btn');
+        if (btn) btn.onclick = toggleTheme;
+
+        // Save label + notes (D)
+        const saveBtn = document.getElementById('save-notes-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async function() {
+                const mac = '{{ device.mac_address }}';
+                const label = document.getElementById('label-input').value;
+                const notes = document.getElementById('notes-input').value;
+                const fd = new FormData();
+                fd.append('label', label);
+                fd.append('notes', notes);
+                const status = document.getElementById('notes-status');
+                try {
+                    const resp = await fetch('/api/v1/devices/' + encodeURIComponent(mac) + '/notes', {method: 'PATCH', body: fd});
+                    if (resp.ok) { status.textContent = 'Saved.'; status.style.color = 'var(--success)'; }
+                    else { const j = await resp.json(); status.textContent = 'Error: ' + (j.detail || resp.status); status.style.color = 'var(--accent)'; }
+                } catch(e) { status.textContent = 'Network error.'; status.style.color = 'var(--accent)'; }
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            });
+        }
+
+        // Upload photo (D)
+        const uploadBtn = document.getElementById('upload-photo-btn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', async function() {
+                const mac = '{{ device.mac_address }}';
+                const fileInput = document.getElementById('photo-input');
+                if (!fileInput.files.length) { return; }
+                const fd = new FormData();
+                fd.append('photo', fileInput.files[0]);
+                const status = document.getElementById('photo-status');
+                try {
+                    const resp = await fetch('/api/v1/devices/' + encodeURIComponent(mac) + '/photo', {method: 'POST', body: fd});
+                    if (resp.ok) { status.textContent = 'Uploaded — reload to see photo.'; status.style.color = 'var(--success)'; }
+                    else { const j = await resp.json(); status.textContent = 'Error: ' + (j.detail || resp.status); status.style.color = 'var(--accent)'; }
+                } catch(e) { status.textContent = 'Network error.'; status.style.color = 'var(--accent)'; }
+                setTimeout(() => { status.textContent = ''; }, 4000);
+            });
+        }
+    });
+</script>
 </body>
 </html>

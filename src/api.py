@@ -15,13 +15,15 @@ import csv
 import io
 import json
 import logging
+import shutil
+import uuid
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, Form, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,6 +42,7 @@ from starlette.types import ASGIApp
 from src.auth import configure_auth, require_auth
 from src.database import get_session, init_database, purge_old_windows
 from src.models import Device, VisibilityWindow
+from src.tracing import instrument_fastapi
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +168,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Attach OpenTelemetry instrumentation (no-op if tracing not configured)
+instrument_fastapi(app)
+
 # Register rate-limit exceeded handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
@@ -176,6 +182,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# Photos upload directory (created on first use)
+_PHOTOS_DIR = _STATIC_DIR / "photos"
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -347,6 +356,109 @@ def get_device_windows(
         "pages": (total + page_size - 1) // page_size if page_size else 0,
         "windows": [_serialize_window(w) for w in windows],
     }
+
+
+# ---------------------------------------------------------------------------
+# REST API v1 — Device notes / label
+# ---------------------------------------------------------------------------
+
+@v1.patch("/devices/{mac_address}/notes")
+@limiter.limit("60/minute")
+def update_device_notes(
+    request: Request,
+    mac_address: str,
+    label: str | None = Form(default=None),
+    notes: str | None = Form(default=None),
+    session: Session = Depends(get_db),
+    _user: str | None = Depends(require_auth),
+) -> dict[str, Any]:
+    """Update the operator label and notes for a device.
+
+    Args:
+        request: FastAPI request.
+        mac_address: Device MAC address.
+        label: Human-readable alias (max 255 chars).
+        notes: Free-form notes.
+        session: Database session.
+
+    Returns:
+        Updated device fields.
+    """
+    device = session.query(Device).filter_by(mac_address=mac_address).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if label is not None:
+        device.label = label[:255] if label else None
+    if notes is not None:
+        device.notes = notes or None
+    session.commit()
+    return {"mac_address": mac_address, "label": device.label, "notes": device.notes}
+
+
+_ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+_MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@v1.post("/devices/{mac_address}/photo")
+@limiter.limit("20/minute")
+async def upload_device_photo(
+    request: Request,
+    mac_address: str,
+    photo: UploadFile = File(...),
+    session: Session = Depends(get_db),
+    _user: str | None = Depends(require_auth),
+) -> dict[str, Any]:
+    """Upload an optional photo for a device.
+
+    Stores the file under ``static/photos/`` using a UUID filename to
+    prevent path-traversal attacks.  Only image extensions are accepted.
+
+    Args:
+        request: FastAPI request.
+        mac_address: Device MAC address.
+        photo: Uploaded image file.
+        session: Database session.
+
+    Returns:
+        ``{"photo_url": "<relative URL to the uploaded file>"}``
+    """
+    device = session.query(Device).filter_by(mac_address=mac_address).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    original_name = photo.filename or ""
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in _ALLOWED_PHOTO_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{suffix}'. Allowed: {sorted(_ALLOWED_PHOTO_EXTENSIONS)}",
+        )
+
+    _PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+    # Use UUID filename to prevent path-traversal
+    safe_filename = f"{uuid.uuid4()}{suffix}"
+    dest = _PHOTOS_DIR / safe_filename
+
+    # Stream upload to disk, enforce size limit
+    bytes_written = 0
+    with dest.open("wb") as out_file:
+        while chunk := await photo.read(65536):
+            bytes_written += len(chunk)
+            if bytes_written > _MAX_PHOTO_BYTES:
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="Photo exceeds 10 MB limit")
+            out_file.write(chunk)
+
+    # Remove old photo if it exists
+    if device.photo_path:
+        old_file = _STATIC_DIR / device.photo_path.lstrip("/static/").lstrip("/")
+        if old_file.exists() and old_file.is_relative_to(_PHOTOS_DIR):
+            old_file.unlink(missing_ok=True)
+
+    relative_url = f"/static/photos/{safe_filename}"
+    device.photo_path = relative_url
+    session.commit()
+    return {"photo_url": relative_url}
 
 
 # ---------------------------------------------------------------------------
@@ -953,6 +1065,9 @@ def _serialize_device(device: Device) -> dict[str, Any]:
         "category": device.category,
         "is_whitelisted": device.is_whitelisted,
         "reconnect_count": device.reconnect_count,
+        "label": device.label,
+        "notes": device.notes,
+        "photo_path": device.photo_path,
         "created_at": device.created_at.isoformat() if device.created_at else None,
         "updated_at": device.updated_at.isoformat() if device.updated_at else None,
     }

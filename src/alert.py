@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.config import AlertConfig
+from src.config import AlertConfig, AlertRule
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ class AlertManager:
             config: Alert configuration settings.
         """
         self._config = config
+        self._rules: list[AlertRule] = list(config.rules)
         self._alert_count = 0
         # MAC address -> timestamp of last alert for deduplication
         self._last_alerted: dict[str, datetime] = {}
@@ -107,6 +108,80 @@ class AlertManager:
                 logger.warning("New unknown %s device detected.", device_type)
 
         _alert_logger.info(message)
+
+        # Check time_window rules
+        now_hour = now_dt.hour
+        for rule in self._rules:
+            if rule.rule_type != "time_window":
+                continue
+            if rule.device_type_filter and device_type != rule.device_type_filter:
+                continue
+            s, e = rule.start_hour, rule.end_hour
+            in_window = (s <= e and s <= now_hour < e) or (s > e and (now_hour >= s or now_hour < e))
+            if not in_window:
+                continue
+            rule_key = f"time_window:{mac_address}:{s}-{e}"
+            last_rule = self._last_alerted.get(rule_key)
+            if last_rule is not None and (now_dt - last_rule).total_seconds() < self._config.cooldown_seconds:
+                continue
+            self._last_alerted[rule_key] = now_dt
+            self._alert_count += 1
+            label = rule.label or f"night_watch({s:02d}:00-{e:02d}:00)"
+            logger.warning(
+                "Rule [%s]: new %s device %s detected at hour %02d:xx",
+                label,
+                device_type,
+                mac_address,
+                now_hour,
+            )
+            _alert_logger.info("[RULE:%s] New %s device %s at %02d:xx", label, device_type, mac_address, now_hour)
+
+    def check_disappearance(self, last_seen_by_mac: dict[str, datetime]) -> None:
+        """Check disappearance rules and fire alerts as needed.
+
+        Args:
+            last_seen_by_mac: Mapping of MAC address to the datetime it was last seen.
+        """
+        now_dt = datetime.now(timezone.utc)
+        for rule in self._rules:
+            if rule.rule_type != "disappearance" or not rule.mac_address:
+                continue
+            last_seen = last_seen_by_mac.get(rule.mac_address)
+            if last_seen is None:
+                elapsed_minutes: float = float("inf")
+            else:
+                if last_seen.tzinfo is None:
+                    last_seen = last_seen.replace(tzinfo=timezone.utc)
+                elapsed_minutes = (now_dt - last_seen).total_seconds() / 60.0
+
+            if elapsed_minutes < rule.threshold_minutes:
+                continue
+
+            rule_key = f"disappearance:{rule.mac_address}"
+            last_alerted = self._last_alerted.get(rule_key)
+            if last_alerted is not None and (now_dt - last_alerted).total_seconds() < self._config.cooldown_seconds:
+                continue
+
+            self._last_alerted[rule_key] = now_dt
+            self._alert_count += 1
+            label = rule.label or rule.mac_address
+            if elapsed_minutes == float("inf"):
+                logger.warning("Rule [%s]: device %s has never been seen", label, rule.mac_address)
+                _alert_logger.info("[RULE:%s] Device %s never seen", label, rule.mac_address)
+            else:
+                logger.warning(
+                    "Rule [%s]: device %s absent for %.1f min (threshold: %d min)",
+                    label,
+                    rule.mac_address,
+                    elapsed_minutes,
+                    rule.threshold_minutes,
+                )
+                _alert_logger.info(
+                    "[RULE:%s] Device %s absent %.1f min",
+                    label,
+                    rule.mac_address,
+                    elapsed_minutes,
+                )
 
     @property
     def alert_count(self) -> int:

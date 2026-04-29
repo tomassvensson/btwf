@@ -31,10 +31,33 @@ class MonitorModeDevice:
     vendor: str | None = None
     channel: int | None = None
     scan_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    probed_ssids: list[str] = field(default_factory=list)
+    """All unique SSIDs this device was observed probing for."""
 
     def __repr__(self) -> str:
         """Return string representation."""
         return f"<MonitorModeDevice(mac={self.mac_address}, signal={self.signal_dbm}dBm, type={self.frame_type})>"
+
+
+@dataclass
+class ProbeRequest:
+    """A single 802.11 probe-request frame captured from a device.
+
+    Probe requests are management frames broadcast by WiFi clients to find
+    known networks.  Collecting these reveals which SSIDs a device has
+    previously connected to.
+
+    Attributes:
+        mac_address: Source MAC of the probing device.
+        probed_ssid: The SSID being probed (empty string = wildcard/broadcast probe).
+        signal_dbm: Received signal strength in dBm, or ``None`` if unavailable.
+        scan_time: When the frame was captured.
+    """
+
+    mac_address: str
+    probed_ssid: str
+    signal_dbm: float | None = None
+    scan_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 def is_scapy_available() -> bool:
@@ -176,6 +199,12 @@ def _capture_frames(
             if ssid and not existing.ssid:
                 existing.ssid = ssid
 
+        # Accumulate probed SSIDs (de-duplicated, including empty wildcard probes)
+        if frame_type == "probe_request":
+            ssid_key = ssid if ssid else ""
+            if ssid_key not in devices[src_mac].probed_ssids:
+                devices[src_mac].probed_ssids.append(ssid_key)
+
     try:
         sniff(
             iface=interface,
@@ -189,3 +218,39 @@ def _capture_frames(
 
     logger.info("Monitor mode capture complete: %d unique devices", len(devices))
     return list(devices.values())
+
+
+def scan_probe_requests(
+    interface: str = "wlan0mon",
+    duration_seconds: int = 30,
+) -> list[ProbeRequest]:
+    """Capture 802.11 probe-request frames and return per-frame records.
+
+    Each returned :class:`ProbeRequest` represents one unique
+    (mac_address, probed_ssid) pair observed during the capture window.
+    This reveals which network names a client device has previously
+    connected to.
+
+    Args:
+        interface: Monitor mode interface name.
+        duration_seconds: How long to capture.
+
+    Returns:
+        List of :class:`ProbeRequest` objects (one per unique mac+ssid pair).
+        Returns an empty list if scapy is unavailable or permissions are insufficient.
+    """
+    devices = scan_monitor_mode(interface=interface, duration_seconds=duration_seconds, channel_hop=False)
+    probe_records: list[ProbeRequest] = []
+    for dev in devices:
+        if dev.frame_type == "probe_request":
+            for ssid in dev.probed_ssids:
+                probe_records.append(
+                    ProbeRequest(
+                        mac_address=dev.mac_address,
+                        probed_ssid=ssid,
+                        signal_dbm=dev.signal_dbm,
+                        scan_time=dev.scan_time,
+                    )
+                )
+    logger.info("Probe request scan: %d unique (mac, ssid) pairs", len(probe_records))
+    return probe_records
