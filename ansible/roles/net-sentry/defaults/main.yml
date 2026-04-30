@@ -17,3 +17,5 @@ net_sentry_db_url: "sqlite:///{{ net_sentry_home }}/net-sentry.db"
 
 net_sentry_json_logging: false
 net_sentry_tracing: false
+# Set to true to skip starting the systemd service (useful for CI/Molecule)
+net_sentry_skip_service_start: false

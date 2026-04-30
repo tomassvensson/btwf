@@ -54,6 +54,11 @@ dev = [
 monitor = [
     "scapy>=2.5",
 ]
+observability = [
+    # OTLP gRPC exporter for sending traces/metrics to an OpenTelemetry Collector
+    # Install with:  pip install "net-sentry[observability]"
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20",
+]
 
 [project.scripts]
 net-sentry = "src.main:main"

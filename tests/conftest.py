@@ -31,6 +31,28 @@ _T1 = datetime(2025, 1, 1, 12, 5, 0, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------
+# Pytest configuration guard (Task G)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True, scope="session")
+def assert_asyncio_mode_strict(pytestconfig: pytest.Config) -> None:
+    """Assert that asyncio_mode is set to 'strict' in the pytest configuration.
+
+    This fixture runs once per session and fails immediately if the asyncio mode
+    is not 'strict', preventing subtle test-order bugs caused by implicitly-async
+    fixtures or tests running in the wrong event-loop context.
+    """
+    asyncio_mode = pytestconfig.getoption("--asyncio-mode", default=None) or pytestconfig.getini(
+        "asyncio_mode"
+    )
+    assert asyncio_mode == "strict", (
+        f"pytest-asyncio must be configured with asyncio_mode='strict', got {asyncio_mode!r}. "
+        "Check pyproject.toml [tool.pytest.ini_options] asyncio_mode = 'strict'."
+    )
+
+
+# ---------------------------------------------------------------------------
 # In-memory database fixture
 # ---------------------------------------------------------------------------
 

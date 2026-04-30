@@ -267,8 +267,18 @@
     <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 2rem;">
         Raw JSON: <a href="/api/v1/devices/{{ device.mac_address }}/timeline?gap_minutes={{ gap_minutes }}" style="color: var(--accent);">/api/v1/devices/{{ device.mac_address }}/timeline</a>
     </div>
+
+    {% set signal_windows = entries | selectattr('type', 'equalto', 'window') | list %}
+    {% if signal_windows %}
+    <!-- Signal strength sparkline -->
+    <div class="card">
+        <h2>Signal Strength Over Time</h2>
+        <canvas id="signal-chart" height="80" aria-label="Signal strength chart"></canvas>
+    </div>
+    {% endif %}
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
 (function () {
     // Make timeline bars proportional in width to their duration
@@ -305,6 +315,51 @@
         }
         prev = e;
     });
+
+    // Signal strength sparkline via Chart.js
+    var chartCanvas = document.getElementById('signal-chart');
+    if (chartCanvas && typeof Chart !== 'undefined') {
+        var signalLabels = [];
+        var signalData = [];
+        entries.forEach(function (el) {
+            if (el.dataset.type !== 'window') return;
+            var start = parseFloat(el.dataset.start);
+            var dateLabel = new Date(start * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+            var dbm = el.querySelector('.tl-signal');
+            if (dbm) {
+                var val = parseFloat(dbm.textContent);
+                if (!isNaN(val)) {
+                    signalLabels.push(dateLabel);
+                    signalData.push(val);
+                }
+            }
+        });
+        if (signalLabels.length > 0) {
+            new Chart(chartCanvas, {
+                type: 'line',
+                data: {
+                    labels: signalLabels,
+                    datasets: [{
+                        label: 'Signal (dBm)',
+                        data: signalData,
+                        borderColor: '#e94560',
+                        backgroundColor: 'rgba(233,69,96,0.1)',
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: signalLabels.length > 50 ? 0 : 3,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 8, color: '#999' }, grid: { color: '#2a2a4a' } },
+                        y: { reverse: false, ticks: { color: '#999' }, grid: { color: '#2a2a4a' } }
+                    }
+                }
+            });
+        }
+    }
 })();
 </script>
 </body>

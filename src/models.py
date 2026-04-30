@@ -51,6 +51,9 @@ class Device(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Relative path to an uploaded photo, stored under the static/photos/ directory.
     photo_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Fingerprint confidence score (0.0–1.0) from the fingerprinting subsystem.
+    # None means fingerprinting has not been run on this device.
+    fingerprint_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False

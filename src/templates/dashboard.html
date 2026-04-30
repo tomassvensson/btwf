@@ -8,6 +8,20 @@
     <link rel="icon" href="data:,">
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            // Automatically send CSRF token with all HTMX mutating requests
+            document.body.addEventListener("htmx:configRequest", function (evt) {
+                var csrfToken = document.cookie.split("; ").reduce(function (acc, c) {
+                    var parts = c.split("=");
+                    return parts[0] === "csrftoken" ? parts[1] : acc;
+                }, "");
+                if (csrfToken) {
+                    evt.detail.headers["X-CSRFToken"] = csrfToken;
+                }
+            });
+        });
+    </script>
     <style>
         :root {
             --bg: #1a1a2e;

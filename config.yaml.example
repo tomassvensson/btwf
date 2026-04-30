@@ -30,6 +30,9 @@ scan:
   netbios_enabled: true
   snmp_enabled: false
   monitor_mode_enabled: false
+  # Set dhcp_enabled to true if you run an ISC DHCP server locally
+  dhcp_enabled: false
+  dhcp_lease_file: /var/lib/dhcp/dhcpd.leases
 
 arp:
   resolve_hostnames: true
@@ -106,6 +109,12 @@ oui:
   update_interval_hours: 168  # 1 week
   cache_file: "src/data/oui_cache.txt"
 
+# mDNS scanner settings
+mdns:
+  # Restrict scanning to specific service types. Leave empty to scan all built-in types.
+  # Example: ["_http._tcp.local.", "_ssh._tcp.local.", "_airplay._tcp.local."]
+  service_types: []
+
 monitor_mode:
   interface: "wlan0mon"
   use_docker: true
@@ -120,8 +129,8 @@ api:
   host: "0.0.0.0"
   port: 8000
   # Enable JWT authentication for the /api/v1/* endpoints.
-  # When disabled (default), the API is public.
-  auth_enabled: false
+  # Auth is enabled by default; set to false only for local development.
+  auth_enabled: true
   # Secret key used to sign JWT tokens.
   # Override via environment variable: BTWIFI_JWT_SECRET=<value>
   # IMPORTANT: generate a strong random secret for production!

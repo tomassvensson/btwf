@@ -13,6 +13,7 @@ import signal
 import sys
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import TypeVar
 
@@ -385,6 +386,10 @@ class _ScanData:
 def _execute_all_scanners(config: AppConfig) -> _ScanData:
     """Run all enabled scanners and return collected data.
 
+    Independent scanners (WiFi, Bluetooth, ARP, mDNS, SSDP, IPv6, Monitor,
+    Ping Sweep) run in parallel via a ThreadPoolExecutor.  NetBIOS resolution
+    runs afterwards because it depends on the ARP results.
+
     Args:
         config: Application configuration.
 
@@ -393,52 +398,105 @@ def _execute_all_scanners(config: AppConfig) -> _ScanData:
     """
     data = _ScanData()
 
+    # Build the set of independent scanner tasks
+    tasks: dict[str, Callable[[], list]] = {}
+
     if config.scan.wifi_enabled:
-        data.wifi_networks = _run_scanner("WiFi", scan_wifi_networks)
+        tasks["WiFi"] = scan_wifi_networks
 
     if config.scan.bluetooth_enabled:
-        data.bt_devices = _run_scanner("Bluetooth", scan_bluetooth_devices)
+        tasks["Bluetooth"] = scan_bluetooth_devices
 
     if config.scan.ble_enabled and platform.system().lower() == "linux":
-        ble_devices = _run_scanner(
-            "BLE",
-            lambda: scan_ble_devices(scanning_mode=config.scan.ble_scanning_mode),
-        )
-        data.bt_devices = _merge_bluetooth_devices(data.bt_devices, ble_devices)
+        tasks["BLE"] = lambda: scan_ble_devices(scanning_mode=config.scan.ble_scanning_mode)
 
     if config.scan.arp_enabled:
-        data.arp_devices = _run_scanner("ARP", scan_arp_table)
+        tasks["ARP"] = scan_arp_table
 
     if config.ping_sweep.enabled and config.ping_sweep.subnets:
-        data.ping_sweep_devices = _run_scanner(
-            "Ping Sweep",
-            lambda: ping_sweep(
-                config.ping_sweep.subnets,
-                max_workers=config.ping_sweep.max_workers,
-                timeout=config.ping_sweep.timeout_seconds,
-                subnet_labels=config.ping_sweep.subnet_labels or None,
-            ),
+        tasks["Ping Sweep"] = lambda: ping_sweep(
+            config.ping_sweep.subnets,
+            max_workers=config.ping_sweep.max_workers,
+            timeout=config.ping_sweep.timeout_seconds,
+            subnet_labels=config.ping_sweep.subnet_labels or None,
         )
 
     if config.scan.mdns_enabled:
-        data.mdns_devices = _run_scanner("mDNS", _import_and_scan_mdns)
+        allowed = config.mdns.service_types or None
+        tasks["mDNS"] = lambda: _import_and_scan_mdns(allowed_types=allowed)
 
     if config.scan.ssdp_enabled:
-        data.ssdp_devices = _run_scanner("SSDP", _import_and_scan_ssdp)
-
-    if config.scan.netbios_enabled and data.arp_devices:
-        data.netbios_names = _resolve_netbios(data.arp_devices)
+        tasks["SSDP"] = _import_and_scan_ssdp
 
     if config.scan.ipv6_enabled:
-        data.ipv6_neighbors = _run_scanner("IPv6", scan_ipv6_neighbors)
+        tasks["IPv6"] = scan_ipv6_neighbors
 
     if config.scan.monitor_mode_enabled:
-        data.monitor_devices = _run_scanner("Monitor", _import_and_scan_monitor)
+        tasks["Monitor"] = _import_and_scan_monitor
+
+    if config.scan.dhcp_enabled:
+        tasks["DHCP"] = lambda: _import_and_scan_dhcp(config.scan.dhcp_lease_file)
+
+    # Run all independent scanners in parallel
+    with ThreadPoolExecutor(max_workers=len(tasks) or 1, thread_name_prefix="scanner") as executor:
+        future_to_name = {
+            executor.submit(_run_scanner_with_trace_context, name, fn): name
+            for name, fn in tasks.items()
+        }
+        for future in as_completed(future_to_name):
+            name = future_to_name[future]
+            result = future.result()  # _run_scanner already handles exceptions
+            if name == "WiFi":
+                data.wifi_networks = result
+            elif name in ("Bluetooth", "BLE"):
+                data.bt_devices = _merge_bluetooth_devices(data.bt_devices, result)
+            elif name == "ARP":
+                data.arp_devices = result
+            elif name == "Ping Sweep":
+                data.ping_sweep_devices = result
+            elif name == "mDNS":
+                data.mdns_devices = result
+            elif name == "SSDP":
+                data.ssdp_devices = result
+            elif name == "IPv6":
+                data.ipv6_neighbors = result
+            elif name == "Monitor":
+                data.monitor_devices = result
+
+    # NetBIOS depends on ARP results — must run after
+    if config.scan.netbios_enabled and data.arp_devices:
+        data.netbios_names = _resolve_netbios(data.arp_devices)
 
     return data
 
 
 _T = TypeVar("_T")
+
+
+def _run_scanner_with_trace_context(name: str, scanner_fn: Callable[[], list[_T]]) -> list[_T]:
+    """Run a scanner in a thread pool while preserving the parent trace context.
+
+    Captures the OpenTelemetry context from the calling thread and attaches
+    it inside the worker thread so that spans created by the scanner are
+    correctly parented.  Falls back transparently when opentelemetry is not
+    installed.
+
+    Args:
+        name: Scanner name (forwarded to :func:`_run_scanner`).
+        scanner_fn: Scanner callable.
+
+    Returns:
+        Scanner results.
+    """
+    try:
+        from opentelemetry import context as otel_context, trace
+
+        ctx = otel_context.get_current()
+        tracer = trace.get_tracer("net_sentry.scanner")
+        with tracer.start_as_current_span(f"scanner.{name}", context=ctx):
+            return _run_scanner(name, scanner_fn)
+    except ImportError:
+        return _run_scanner(name, scanner_fn)
 
 
 def _run_scanner(name: str, scanner_fn: Callable[[], list[_T]]) -> list[_T]:
@@ -505,11 +563,11 @@ def _merge_bluetooth_devices(
     return ordered_devices
 
 
-def _import_and_scan_mdns() -> list[MdnsDevice]:
+def _import_and_scan_mdns(allowed_types: list[str] | None = None) -> list[MdnsDevice]:
     """Import and run the mDNS scanner."""
     from src.mdns_scanner import scan_mdns_services
 
-    return scan_mdns_services()
+    return scan_mdns_services(allowed_types=allowed_types)
 
 
 def _import_and_scan_ssdp() -> list[SsdpDevice]:
@@ -524,6 +582,20 @@ def _import_and_scan_monitor() -> list[object]:
     from src.monitor_scanner import scan_monitor_mode
 
     return scan_monitor_mode()  # type: ignore[return-value]
+
+
+def _import_and_scan_dhcp(lease_file: str) -> list[NetworkDevice]:
+    """Import and run the DHCP lease scanner.
+
+    Args:
+        lease_file: Path to the ISC DHCP lease database file.
+
+    Returns:
+        List of NetworkDevice records derived from DHCP leases.
+    """
+    from src.dhcp_scanner import parse_dhcp_leases
+
+    return parse_dhcp_leases(lease_file)
 
 
 def _resolve_netbios(arp_devices: list[NetworkDevice]) -> dict[str, str]:

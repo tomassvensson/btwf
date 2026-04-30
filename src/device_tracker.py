@@ -8,10 +8,13 @@ the configured gap, a new window is created.
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from src.bluetooth_scanner import BluetoothDevice
 from src.models import Device, VisibilityWindow
+from src.network_discovery import NetworkDevice
 from src.wifi_scanner import WifiNetwork
 
 logger = logging.getLogger(__name__)
@@ -243,3 +246,63 @@ def get_all_devices_with_latest_window(
         results.append((device, window))
 
     return results
+
+
+def bulk_upsert_network_devices(session: Session, devices: list[NetworkDevice]) -> int:
+    """Insert or update multiple network devices in a single database round-trip.
+
+    Uses SQLite's ``INSERT OR REPLACE`` / ``ON CONFLICT DO UPDATE`` semantics
+    via SQLAlchemy's dialect-specific insert, falling back to individual upserts
+    for non-SQLite databases.
+
+    Args:
+        session: Active database session.
+        devices: List of NetworkDevice records from ARP/ping-sweep scans.
+
+    Returns:
+        Number of rows inserted or updated.
+    """
+    if not devices:
+        return 0
+
+    # Determine dialect to pick the right insert strategy
+    dialect_name = sa_inspect(session.get_bind()).dialect.name  # type: ignore[union-attr]
+
+    rows = [
+        {
+            "mac_address": d.mac_address,
+            "device_type": "network",
+            "vendor": d.vendor,
+            "device_name": d.hostname,
+            "hostname": d.hostname,
+            "ip_address": d.ip_address,
+            "network_segment": d.network_segment,
+        }
+        for d in devices
+        if d.mac_address
+    ]
+    if not rows:
+        return 0
+
+    if dialect_name == "sqlite":
+        stmt = sqlite_insert(Device).values(rows)
+        update_cols = {
+            "vendor": stmt.excluded.vendor,
+            "hostname": stmt.excluded.hostname,
+            "ip_address": stmt.excluded.ip_address,
+            "network_segment": stmt.excluded.network_segment,
+        }
+        stmt = stmt.on_conflict_do_update(index_elements=["mac_address"], set_=update_cols)
+        session.execute(stmt)
+    else:
+        # Portable fallback: individual merge per row
+        for row in rows:
+            existing = session.query(Device).filter_by(mac_address=row["mac_address"]).first()
+            if existing is None:
+                session.add(Device(**row))
+            else:
+                for key, val in row.items():
+                    if val is not None:
+                        setattr(existing, key, val)
+
+    return len(rows)

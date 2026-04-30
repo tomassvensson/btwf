@@ -75,7 +75,7 @@ class MdnsDevice:
     scan_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-def scan_mdns_services(timeout: float = _BROWSE_TIMEOUT) -> list[MdnsDevice]:
+def scan_mdns_services(timeout: float = _BROWSE_TIMEOUT, allowed_types: list[str] | None = None) -> list[MdnsDevice]:
     """Discover devices advertising mDNS services on the local network.
 
     Sends DNS PTR queries for common service types via multicast UDP
@@ -83,6 +83,9 @@ def scan_mdns_services(timeout: float = _BROWSE_TIMEOUT) -> list[MdnsDevice]:
 
     Args:
         timeout: How long to wait for responses per service type (seconds).
+        allowed_types: If non-empty, only these service types are scanned.
+            When empty or None, all built-in types plus DNS-SD-discovered
+            types are scanned.
 
     Returns:
         List of discovered MdnsDevice objects.
@@ -116,7 +119,10 @@ def scan_mdns_services(timeout: float = _BROWSE_TIMEOUT) -> list[MdnsDevice]:
             logger.info("DNS-SD enumeration found %d additional service types", len(dynamic_service_types))
 
         # Step 2: Query all service types (static + discovered)
-        all_service_types = list(_SERVICE_TYPES) + dynamic_service_types
+        if allowed_types:
+            all_service_types = allowed_types
+        else:
+            all_service_types = list(_SERVICE_TYPES) + dynamic_service_types
         for stype in all_service_types:
             raw_responses = _query_service_type(sock, stype, timeout)
             for raw in raw_responses:

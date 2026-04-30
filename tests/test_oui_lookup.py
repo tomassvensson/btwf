@@ -220,6 +220,8 @@ class TestLoadOuiCsv:
         # Force mac-vendor-lookup to miss
         monkeypatch.setattr(oui_mod, "_mac_lookup", None)
         monkeypatch.setattr(oui_mod, "_INIT_ATTEMPTED", True)
+        # Clear the prefix LRU cache so re-patched state takes effect
+        oui_mod._cached_lookup_by_prefix.cache_clear()
 
         vendor = lookup_vendor("AA:BB:CC:00:00:01")
         assert vendor == "TestCorp Ltd."

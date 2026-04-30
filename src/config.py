@@ -6,6 +6,7 @@ overrides. Provides sensible defaults for all settings.
 
 import logging
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -13,6 +14,9 @@ from typing import Literal
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = "config.yaml"
+# Placeholder secret used in the example config.  If the loaded config still
+# contains this value, a new random secret is generated and written back.
+_PLACEHOLDER_JWT_SECRET = "change-me-in-production-use-env-var"
 
 
 @dataclass
@@ -33,6 +37,8 @@ class ScanConfig:
     snmp_enabled: bool = False
     monitor_mode_enabled: bool = False
     ipv6_enabled: bool = True
+    dhcp_enabled: bool = False
+    dhcp_lease_file: str = "/var/lib/dhcp/dhcpd.leases"
 
 
 @dataclass
@@ -148,6 +154,10 @@ class AlertConfig:
     sound_enabled: bool = False
     cooldown_seconds: int = 300  # Minimum seconds between alerts for the same MAC address
     rules: list[AlertRule] = field(default_factory=list)
+    # Webhook URL for outbound alert notifications.  Leave empty to disable.
+    webhook_url: str = ""
+    # Payload format: "slack" (default) or "pagerduty"
+    webhook_format: str = "slack"
 
 
 @dataclass
@@ -167,6 +177,15 @@ class OuiConfig:
     auto_update: bool = True
     update_interval_hours: int = 168  # 1 week
     cache_file: str = "src/data/oui_cache.txt"
+
+
+@dataclass
+class MdnsConfig:
+    """mDNS scanner settings."""
+
+    # If empty, all built-in service types are scanned.
+    # Set to a list of service types to scan only those, e.g. ["_http._tcp.local.", "_ssh._tcp.local."]
+    service_types: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -250,6 +269,7 @@ class AppConfig:
     alert: AlertConfig = field(default_factory=AlertConfig)
     whitelist: list[WhitelistEntry] = field(default_factory=list)
     oui: OuiConfig = field(default_factory=OuiConfig)
+    mdns: MdnsConfig = field(default_factory=MdnsConfig)
     monitor_mode: MonitorModeConfig = field(default_factory=MonitorModeConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
     mqtt: MqttConfig = field(default_factory=MqttConfig)
@@ -262,6 +282,12 @@ class AppConfig:
 
 def load_config(config_path: str | None = None) -> AppConfig:
     """Load configuration from YAML file with env var overrides.
+
+    If the loaded configuration still has the placeholder JWT secret
+    (``change-me-in-production-use-env-var``), a cryptographically random
+    secret is generated and written back to ``config.yaml`` so that
+    subsequent startups use the same stable secret without requiring
+    manual intervention.
 
     Args:
         config_path: Path to YAML config file. Defaults to config.yaml.
@@ -289,7 +315,76 @@ def load_config(config_path: str | None = None) -> AppConfig:
     else:
         logger.debug("No config file at %s, using defaults.", path)
 
-    return _apply_env_overrides(config)
+    config = _apply_env_overrides(config)
+
+    # Auto-generate JWT secret if still using the insecure placeholder
+    _maybe_rotate_jwt_secret(config, path)
+
+    return config
+
+
+def _maybe_rotate_jwt_secret(config: AppConfig, config_path: str) -> None:
+    """Generate and persist a random JWT secret if the placeholder is still set.
+
+    This runs once on startup so operators don't need to manually generate a
+    secret for basic deployments.  The generated secret is written back to
+    ``config_path`` so the same token remains valid across restarts.
+
+    A secret set via the ``NET_SENTRY_JWT_SECRET`` / ``BTWIFI_JWT_SECRET``
+    environment variable is never overwritten — the env override wins.
+
+    Args:
+        config: Loaded application configuration (mutated in place).
+        config_path: Path to the config file to update.
+    """
+    # Respect an explicit env-var override — don't replace it.
+    env_secret = os.environ.get("NET_SENTRY_JWT_SECRET") or os.environ.get("BTWIFI_JWT_SECRET")
+    if env_secret:
+        return
+
+    if config.api.jwt_secret != _PLACEHOLDER_JWT_SECRET:
+        return
+
+    new_secret = secrets.token_urlsafe(32)
+    config.api.jwt_secret = new_secret
+    logger.warning(
+        "JWT secret was set to the insecure placeholder. "
+        "A random secret has been generated and will be written to %s.",
+        config_path,
+    )
+
+    # Write back to the config file if it exists and can be updated
+    _write_jwt_secret_to_config(config_path, new_secret)
+
+
+def _write_jwt_secret_to_config(config_path: str, new_secret: str) -> None:
+    """Write the generated JWT secret back to the config YAML file.
+
+    Performs a targeted line-by-line replacement to preserve all comments and
+    formatting in the file.
+
+    Args:
+        config_path: Path to the config YAML file.
+        new_secret: The new JWT secret to write.
+    """
+    path = Path(config_path)
+    if not path.exists():
+        return
+    try:
+        content = path.read_text(encoding="utf-8")
+        lines = content.splitlines(keepends=True)
+        updated_lines = []
+        for line in lines:
+            stripped = line.lstrip()
+            if stripped.startswith("jwt_secret:"):
+                indent = line[: len(line) - len(stripped)]
+                updated_lines.append(f'{indent}jwt_secret: "{new_secret}"\n')
+            else:
+                updated_lines.append(line)
+        path.write_text("".join(updated_lines), encoding="utf-8")
+        logger.info("JWT secret written to %s.", config_path)
+    except OSError:
+        logger.warning("Could not write generated JWT secret to %s (read-only filesystem?).", config_path)
 
 
 def _parse_raw_config(raw: dict) -> AppConfig:
@@ -319,6 +414,8 @@ def _parse_raw_config(raw: dict) -> AppConfig:
             snmp_enabled=s.get("snmp_enabled", config.scan.snmp_enabled),
             monitor_mode_enabled=s.get("monitor_mode_enabled", config.scan.monitor_mode_enabled),
             ipv6_enabled=s.get("ipv6_enabled", config.scan.ipv6_enabled),
+            dhcp_enabled=s.get("dhcp_enabled", config.scan.dhcp_enabled),
+            dhcp_lease_file=s.get("dhcp_lease_file", config.scan.dhcp_lease_file),
         )
 
     if "arp" in raw:
@@ -406,6 +503,8 @@ def _parse_raw_config(raw: dict) -> AppConfig:
             sound_enabled=al.get("sound_enabled", config.alert.sound_enabled),
             cooldown_seconds=al.get("cooldown_seconds", config.alert.cooldown_seconds),
             rules=parsed_rules,
+            webhook_url=al.get("webhook_url", config.alert.webhook_url),
+            webhook_format=al.get("webhook_format", config.alert.webhook_format),
         )
 
     if "whitelist" in raw:
@@ -426,6 +525,12 @@ def _parse_raw_config(raw: dict) -> AppConfig:
             auto_update=o.get("auto_update", config.oui.auto_update),
             update_interval_hours=o.get("update_interval_hours", config.oui.update_interval_hours),
             cache_file=o.get("cache_file", config.oui.cache_file),
+        )
+
+    if "mdns" in raw:
+        md = raw["mdns"]
+        config.mdns = MdnsConfig(
+            service_types=md.get("service_types", config.mdns.service_types),
         )
 
     if "monitor_mode" in raw:

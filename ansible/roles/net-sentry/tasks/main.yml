@@ -121,3 +121,4 @@
     state: started
     daemon_reload: true
   become: true
+  when: not (net_sentry_skip_service_start | default(false) | bool)

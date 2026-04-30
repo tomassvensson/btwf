@@ -162,6 +162,14 @@
                 <label>Reconnects</label>
                 <span>{{ device.reconnect_count }}</span>
             </div>
+            {% if device.fingerprint_confidence is not none %}
+            <div class="meta-item">
+                <label>FP Confidence</label>
+                <span class="badge {% if device.fingerprint_confidence >= 0.8 %}badge-success{% elif device.fingerprint_confidence >= 0.5 %}badge-warning{% else %}badge-danger{% endif %}">
+                    {{ "%.0f"|format(device.fingerprint_confidence * 100) }}%
+                </span>
+            </div>
+            {% endif %}
             <div class="meta-item">
                 <label>First Seen (ever)</label>
                 <span>{{ device.created_at }}</span>

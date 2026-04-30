@@ -9,6 +9,7 @@ preventing log spam when a device flaps on/off.
 """
 
 import logging
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,83 @@ logger = logging.getLogger(__name__)
 
 # Dedicated alert logger
 _alert_logger = logging.getLogger("net_sentry.alerts")
+
+
+class WebhookDispatcher:
+    """Send alert notifications to a configured webhook URL.
+
+    Supports Slack-compatible payloads (default) and PagerDuty Events API v2.
+    """
+
+    def __init__(self, url: str, format: str = "slack") -> None:
+        """Initialize dispatcher.
+
+        Args:
+            url: Webhook URL to POST alerts to.
+            format: Payload format — "slack" or "pagerduty".
+        """
+        self._url = url
+        self._format = format
+
+    def dispatch(self, message: str, mac_address: str = "", device_type: str = "") -> None:
+        """Send an alert payload to the webhook URL.
+
+        Failures are logged as warnings and never re-raised so they cannot
+        disrupt the main scan loop.
+
+        Args:
+            message: Human-readable alert message.
+            mac_address: MAC address of the triggering device (used in PD payload).
+            device_type: Device type string (used in PD payload).
+        """
+        import json
+
+        if not self._url:
+            return
+
+        try:
+            payload = self._build_payload(message, mac_address, device_type)
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                self._url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+                status = resp.status
+                if status not in (200, 201, 202):
+                    logger.warning("Webhook returned non-success status %d", status)
+                else:
+                    logger.debug("Webhook dispatched successfully (status=%d)", status)
+        except Exception:
+            logger.warning("Failed to dispatch webhook alert", exc_info=True)
+
+    def _build_payload(self, message: str, mac_address: str, device_type: str) -> dict:
+        """Build the format-specific payload dict.
+
+        Args:
+            message: Alert message text.
+            mac_address: MAC address for PagerDuty dedup key.
+            device_type: Device type label.
+
+        Returns:
+            Dictionary ready for JSON serialisation.
+        """
+        if self._format == "pagerduty":
+            return {
+                "routing_key": "",  # must be set by operator at the URL level
+                "event_action": "trigger",
+                "dedup_key": f"net-sentry:{mac_address}",
+                "payload": {
+                    "summary": message,
+                    "severity": "warning",
+                    "source": "net-sentry",
+                    "custom_details": {"mac_address": mac_address, "device_type": device_type},
+                },
+            }
+        # Default: Slack-compatible
+        return {"text": message}
 
 
 class AlertManager:
@@ -34,6 +112,7 @@ class AlertManager:
         self._alert_count = 0
         # MAC address -> timestamp of last alert for deduplication
         self._last_alerted: dict[str, datetime] = {}
+        self._webhook = WebhookDispatcher(config.webhook_url, config.webhook_format) if config.webhook_url else None
 
         if config.log_file:
             self._setup_file_handler(config.log_file)
@@ -108,6 +187,10 @@ class AlertManager:
                 logger.warning("New unknown %s device detected.", device_type)
 
         _alert_logger.info(message)
+
+        # Dispatch webhook notification if configured
+        if self._webhook:
+            self._webhook.dispatch(message, mac_address=mac_address, device_type=device_type)
 
         # Check time_window rules
         now_hour = now_dt.hour

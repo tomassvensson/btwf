@@ -12,6 +12,7 @@ The lookup strategy (highest priority first):
 from __future__ import annotations
 
 import csv
+import functools
 import logging
 import re
 import warnings
@@ -724,6 +725,33 @@ def get_oui_prefix(mac_address: str) -> str:
     return normalized[:8]
 
 
+@functools.lru_cache(maxsize=4096)
+def _cached_lookup_by_prefix(prefix: str) -> str | None:
+    """Return vendor name for a normalised OUI prefix (XX:XX:XX, uppercase).
+
+    Results are cached in an LRU cache (up to 4096 entries) so repeated
+    lookups for the same prefix — which is very common in scanning workloads
+    — pay no per-call cost after the first hit.
+
+    The cache is intentionally kept separate from :func:`lookup_vendor` so
+    that it operates on the already-normalised prefix string and is
+    independent of the various input formats accepted by ``lookup_vendor``.
+
+    Args:
+        prefix: OUI prefix in ``XX:XX:XX`` upper-case colon-separated format.
+
+    Returns:
+        Vendor name string, or ``None`` if not found.
+    """
+    # Check the local IEEE OUI CSV first (usually more complete)
+    csv_vendor = _load_oui_csv().get(prefix)
+    if csv_vendor:
+        return csv_vendor
+
+    # Fall back to built-in static table
+    return _BUILTIN_OUI.get(prefix)
+
+
 def lookup_vendor(mac_address: str) -> str | None:
     """Look up the vendor/manufacturer for a MAC address.
 
@@ -755,16 +783,11 @@ def lookup_vendor(mac_address: str) -> str | None:
         except Exception:
             logger.debug("mac-vendor-lookup failed, trying CSV fallback.")
 
-    # 2 — Try the local IEEE OUI CSV
+    # 2+3 — Try the local IEEE OUI CSV then built-in table (cached per prefix)
     prefix = get_oui_prefix(normalized)
-    csv_vendor = _load_oui_csv().get(prefix)
-    if csv_vendor:
-        return csv_vendor
-
-    # 3 — Built-in static table
-    vendor = _BUILTIN_OUI.get(prefix)
-    if vendor:
-        return vendor
+    cached = _cached_lookup_by_prefix(prefix)
+    if cached:
+        return cached
 
     logger.debug("No vendor found for requested MAC.")
     return None

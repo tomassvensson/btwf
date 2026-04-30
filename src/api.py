@@ -80,6 +80,52 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Inject a correlation ID into every request/response as X-Request-ID."""
+
+    async def dispatch(self, request: StarletteRequest, call_next: Any) -> StarletteResponse:
+        """Read or generate a request ID and add it to the response."""
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        response: StarletteResponse = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+_CSRF_COOKIE_NAME = "csrftoken"
+_CSRF_HEADER_NAME = "X-CSRFToken"
+_CSRF_PROTECTED_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_CSRF_PROTECTED_PATHS = "/api/v1/"
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Double-submit cookie CSRF protection for mutating API endpoints."""
+
+    async def dispatch(self, request: StarletteRequest, call_next: Any) -> StarletteResponse:
+        """Validate CSRF token on mutating requests, set cookie on all responses."""
+        if request.method in _CSRF_PROTECTED_METHODS and request.url.path.startswith(_CSRF_PROTECTED_PATHS):
+            cookie_token = request.cookies.get(_CSRF_COOKIE_NAME)
+            header_token = request.headers.get(_CSRF_HEADER_NAME)
+            if not cookie_token or not header_token or not _constant_time_compare(cookie_token, header_token):
+                return StarletteResponse(
+                    content='{"detail":"CSRF token missing or invalid"}',
+                    status_code=403,
+                    media_type="application/json",
+                )
+        response: StarletteResponse = await call_next(request)
+        if _CSRF_COOKIE_NAME not in request.cookies:
+            token = str(uuid.uuid4())
+            response.set_cookie(_CSRF_COOKIE_NAME, token, httponly=False, samesite="strict")
+        return response
+
+
+def _constant_time_compare(a: str, b: str) -> bool:
+    """Compare two strings in constant time to prevent timing attacks."""
+    import hmac
+
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: initialize DB, start background jobs on startup."""
@@ -176,6 +222,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 
 # Add security headers middleware
 app.add_middleware(SecurityHeadersMiddleware)
+# Add correlation ID middleware
+app.add_middleware(RequestIdMiddleware)
+# Add CSRF protection middleware
+app.add_middleware(CSRFMiddleware)
 
 # Serve static files if directory exists
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -740,7 +790,7 @@ def windows_table_fragment(
 # Auth endpoints
 # ---------------------------------------------------------------------------
 @v1.post("/auth/token")
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")  # Tight limit to mitigate brute-force attacks
 def login(
     request: Request,
     username: str = Form(...),

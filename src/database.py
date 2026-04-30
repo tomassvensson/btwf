@@ -63,6 +63,10 @@ def init_database(database_url: str | None = None) -> Engine:
     Also migrates existing tables by adding any missing columns
     defined in the models (handles schema evolution without Alembic).
 
+    For SQLite databases, enables WAL (Write-Ahead Logging) journal mode
+    which allows concurrent readers while a writer is active, improving
+    performance when the API and scanner run simultaneously.
+
     Args:
         database_url: Database connection string.
 
@@ -70,6 +74,15 @@ def init_database(database_url: str | None = None) -> Engine:
         SQLAlchemy Engine instance with tables created.
     """
     engine = create_db_engine(database_url)
+
+    # Enable WAL mode for SQLite to allow concurrent readers/writers
+    url = (database_url or get_database_url()).lower()
+    if url.startswith("sqlite"):
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.commit()
+        logger.info("SQLite WAL journal mode enabled.")
+
     Base.metadata.create_all(engine)
     _migrate_missing_columns(engine)
     logger.info("Database tables initialized.")
